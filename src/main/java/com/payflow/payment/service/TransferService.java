@@ -2,90 +2,119 @@
 package com.payflow.payment.service;
 
 import com.payflow.payment.dto.TransferRequest;
-import com.payflow.payment.entity.Account;
 import com.payflow.payment.entity.PaymentTransaction;
-import com.payflow.payment.exception.AccountNotFoundException;
-import com.payflow.payment.repository.AccountRepository;
+import com.payflow.payment.exception.IdempotencyKeyConflictException;
 import com.payflow.payment.repository.PaymentTransactionRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.math.RoundingMode;
+import java.util.Locale;
 
 @Service
 public class TransferService {
 
-    private final AccountRepository accountRepository;
     private final PaymentTransactionRepository transactionRepository;
+    private final TransferExecutionService transferExecutionService;
 
     public TransferService(
-            AccountRepository accountRepository,
-            PaymentTransactionRepository transactionRepository
+            PaymentTransactionRepository transactionRepository,
+            TransferExecutionService transferExecutionService
     ) {
-        this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
+        this.transferExecutionService = transferExecutionService;
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public PaymentTransaction transfer(TransferRequest request) {
-        String fromNumber = request.fromAccountNumber().trim();
-        String toNumber = request.toAccountNumber().trim();
+    public PaymentTransaction transfer(
+            TransferRequest request,
+            String idempotencyKey
+    ) {
+        String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
+        String requestFingerprint = fingerprint(request);
 
-        if (fromNumber.equals(toNumber)) {
-            throw new IllegalArgumentException(
-                    "Sender and receiver must be different accounts"
-            );
-        }
-
-        BigDecimal amount = request.amount();
-
-        if (amount == null || amount.signum() <= 0) {
-            throw new IllegalArgumentException(
-                    "Transfer amount must be positive"
-            );
-        }
-
-        // Lock accounts in a consistent order to reduce deadlocks.
-        String firstNumber = fromNumber.compareTo(toNumber) < 0
-                ? fromNumber : toNumber;
-        String secondNumber = fromNumber.compareTo(toNumber) < 0
-                ? toNumber : fromNumber;
-
-        Account first = accountRepository
-                .findByAccountNumberForUpdate(firstNumber)
-                .orElseThrow(() -> new AccountNotFoundException(
-                        "Account not found: " + firstNumber
+        return transactionRepository.findByIdempotencyKey(normalizedKey)
+                .map(transaction -> resolveExistingTransaction(
+                        transaction,
+                        requestFingerprint
+                ))
+                .orElseGet(() -> executeTransfer(
+                        request,
+                        normalizedKey,
+                        requestFingerprint
                 ));
+    }
 
-        Account second = accountRepository
-                .findByAccountNumberForUpdate(secondNumber)
-                .orElseThrow(() -> new AccountNotFoundException(
-                        "Account not found: " + secondNumber
-                ));
+    private PaymentTransaction executeTransfer(
+            TransferRequest request,
+            String idempotencyKey,
+            String requestFingerprint
+    ) {
+        try {
+            return transferExecutionService.execute(
+                    request,
+                    idempotencyKey,
+                    requestFingerprint
+            );
+        } catch (DataIntegrityViolationException exception) {
+            return transactionRepository.findByIdempotencyKey(idempotencyKey)
+                    .map(transaction -> resolveExistingTransaction(
+                            transaction,
+                            requestFingerprint
+                    ))
+                    .orElseThrow(() -> exception);
+        }
+    }
 
-        Account sender = fromNumber.equals(firstNumber) ? first : second;
-        Account receiver = toNumber.equals(firstNumber) ? first : second;
-
-        if (!sender.getCurrency().equals(request.currency())
-                || !receiver.getCurrency().equals(request.currency())) {
-            throw new IllegalArgumentException(
-                    "Transfer currency must match both account currencies"
+    private PaymentTransaction resolveExistingTransaction(
+            PaymentTransaction transaction,
+            String requestFingerprint
+    ) {
+        if (!transaction.getIdempotencyRequestFingerprint()
+                .equals(requestFingerprint)) {
+            throw new IdempotencyKeyConflictException(
+                    "Idempotency key was already used for a different transfer"
             );
         }
 
-        sender.debit(amount);
-        receiver.credit(amount);
+        return transaction;
+    }
 
-        PaymentTransaction transaction = new PaymentTransaction(
-                sender,
-                receiver,
-                amount,
-                request.currency()
+    private String normalizeIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key header is required"
+            );
+        }
+
+        String normalizedKey = idempotencyKey.trim();
+        if (normalizedKey.length() > 255) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key header must not exceed 255 characters"
+            );
+        }
+
+        return normalizedKey;
+    }
+
+    private String fingerprint(TransferRequest request) {
+        String canonicalRequest = String.join(
+                "\u0000",
+                request.fromAccountNumber().trim(),
+                request.toAccountNumber().trim(),
+                request.amount().setScale(4, RoundingMode.UNNECESSARY)
+                        .toPlainString(),
+                request.currency().toUpperCase(Locale.ROOT)
         );
 
-        transaction.markCompleted();
-
-        return transactionRepository.save(transaction);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(canonicalRequest.getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
     }
 }

@@ -7,11 +7,24 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Optional;
+
 public interface PaymentTransactionRepository
         extends JpaRepository<PaymentTransaction, Long> {
 
     boolean existsByTransactionReference(
             java.util.UUID transactionReference
+    );
+
+    @Query("""
+            SELECT t
+            FROM PaymentTransaction t
+            JOIN FETCH t.fromAccount
+            JOIN FETCH t.toAccount
+            WHERE t.idempotencyKey = :idempotencyKey
+            """)
+    Optional<PaymentTransaction> findByIdempotencyKey(
+            @Param("idempotencyKey") String idempotencyKey
     );
 
     @Query(

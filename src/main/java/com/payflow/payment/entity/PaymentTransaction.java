@@ -1,6 +1,7 @@
 
 package com.payflow.payment.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -22,6 +23,14 @@ public class PaymentTransaction {
 
     @Column(name = "transaction_reference", nullable = false, unique = true)
     private UUID transactionReference;
+
+    @JsonIgnore
+    @Column(name = "idempotency_key", unique = true, length = 255)
+    private String idempotencyKey;
+
+    @JsonIgnore
+    @Column(name = "idempotency_request_fingerprint", length = 64)
+    private String idempotencyRequestFingerprint;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "from_account_id", nullable = false)
@@ -47,9 +56,13 @@ public class PaymentTransaction {
             Account fromAccount,
             Account toAccount,
             BigDecimal amount,
-            String currency
+            String currency,
+            String idempotencyKey,
+            String idempotencyRequestFingerprint
     ) {
         this.transactionReference = UUID.randomUUID();
+        this.idempotencyKey = idempotencyKey;
+        this.idempotencyRequestFingerprint = idempotencyRequestFingerprint;
         this.fromAccount = fromAccount;
         this.toAccount = toAccount;
         this.amount = amount;
