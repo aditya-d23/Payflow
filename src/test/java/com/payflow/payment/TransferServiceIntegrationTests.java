@@ -12,13 +12,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -28,8 +29,6 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -48,8 +47,11 @@ class TransferServiceIntegrationTests {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockitoSpyBean
+    @Autowired
     private PaymentTransactionRepository transactionRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @AfterEach
     void clearDatabase() {
@@ -109,19 +111,30 @@ class TransferServiceIntegrationTests {
     }
 
     @Test
-    void returnsTheOriginalTransactionForAnIdenticalRetry() {
+    void returnsCreatedWithTheOriginalTransactionForAnIdenticalRetry()
+            throws Exception {
         createAccount("PF10001", "100.0000");
         createAccount("PF10002", "0.0000");
 
         PaymentTransaction first = transfer(
                 "PF10001", "PF10002", "40.0000", "retry-key"
         );
-        PaymentTransaction retry = transfer(
-                "PF10001", "PF10002", "40.0", "retry-key"
-        );
 
-        assertThat(retry.getTransactionReference())
-                .isEqualTo(first.getTransactionReference());
+        mockMvc.perform(post("/api/v1/transfers")
+                        .header("Idempotency-Key", "retry-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fromAccountNumber": "PF10001",
+                                  "toAccountNumber": "PF10002",
+                                  "amount": 40.0,
+                                  "currency": "INR"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.transactionReference")
+                        .value(first.getTransactionReference().toString()));
+
         assertBalances("PF10001", "60.0000");
         assertBalances("PF10002", "40.0000");
         assertThat(transactionRepository.count()).isEqualTo(1);
@@ -153,18 +166,80 @@ class TransferServiceIntegrationTests {
     }
 
     @Test
-    void rollsBackAccountBalancesAndIdempotencyRecordWhenPersistenceFails() {
+    void rejectsInvalidAndNullRequestFieldsWithBadRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/transfers")
+                        .header("Idempotency-Key", "invalid-request-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fromAccountNumber": "",
+                                  "toAccountNumber": null,
+                                  "amount": null,
+                                  "currency": "inr"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/transfers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fromAccountNumber": "PF10001",
+                                  "toAccountNumber": "PF10002",
+                                  "amount": 1.0000,
+                                  "currency": "INR"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        assertThat(transactionRepository.count()).isZero();
+    }
+
+    @Test
+    void normalizesCurrencyForFingerprintingAndTransferValidation() {
         createAccount("PF10001", "100.0000");
         createAccount("PF10002", "0.0000");
-        doThrow(new DataIntegrityViolationException("forced persistence failure"))
-                .when(transactionRepository)
-                .saveAndFlush(any(PaymentTransaction.class));
 
-        assertThatThrownBy(() -> transfer(
-                "PF10001", "PF10002", "40.0000", "rollback-key"
-        ))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessage("forced persistence failure");
+        PaymentTransaction first = transferService.transfer(
+                new TransferRequest(
+                        "PF10001",
+                        "PF10002",
+                        new BigDecimal("40.0000"),
+                        "inr"
+                ),
+                "normalized-currency-key"
+        );
+        PaymentTransaction retry = transfer(
+                "PF10001", "PF10002", "40.0000",
+                "normalized-currency-key"
+        );
+
+        assertThat(first.getCurrency()).isEqualTo("INR");
+        assertThat(retry.getTransactionReference())
+                .isEqualTo(first.getTransactionReference());
+        assertBalances("PF10001", "60.0000");
+        assertBalances("PF10002", "40.0000");
+    }
+
+    @Test
+    void rollsBackAccountBalancesAndIdempotencyRecordWhenFailureOccursAfterDebit() {
+        createAccount("PF10001", "100.0000");
+        createAccount("PF10002", "0.0000");
+
+        jdbcTemplate.execute("""
+                CREATE TRIGGER fail_completed_transaction
+                BEFORE UPDATE ON payment_transactions
+                FOR EACH ROW
+                CALL 'com.payflow.payment.TransferServiceIntegrationTests$FailingPaymentTransactionUpdateTrigger'
+                """);
+
+        try {
+            assertThatThrownBy(() -> transfer(
+                    "PF10001", "PF10002", "40.0000", "rollback-key"
+            )).isInstanceOf(RuntimeException.class);
+        } finally {
+            jdbcTemplate.execute("DROP TRIGGER fail_completed_transaction");
+        }
 
         assertBalances("PF10001", "100.0000");
         assertBalances("PF10002", "0.0000");
@@ -293,5 +368,37 @@ class TransferServiceIntegrationTests {
                 .orElseThrow();
         assertThat(account.getBalance())
                 .isEqualByComparingTo(expectedBalance);
+    }
+
+    public static class FailingPaymentTransactionUpdateTrigger
+            implements org.h2.api.Trigger {
+
+        @Override
+        public void init(
+                Connection connection,
+                String schemaName,
+                String triggerName,
+                String tableName,
+                boolean before,
+                int type
+        ) {
+        }
+
+        @Override
+        public void fire(
+                Connection connection,
+                Object[] oldRow,
+                Object[] newRow
+        ) throws SQLException {
+            throw new SQLException("forced post-debit persistence failure");
+        }
+
+        @Override
+        public void close() {
+        }
+
+        @Override
+        public void remove() {
+        }
     }
 }

@@ -24,6 +24,7 @@ public class TransferController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    // A matching replay returns the original representation with its original 201 status.
     public PaymentTransaction transfer(
             @RequestHeader("Idempotency-Key")
             @NotBlank(message = "Idempotency-Key header is required")

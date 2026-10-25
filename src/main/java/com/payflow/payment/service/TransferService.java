@@ -9,10 +9,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.math.RoundingMode;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.math.RoundingMode;
-import java.util.Locale;
 
 @Service
 public class TransferService {
@@ -33,7 +32,8 @@ public class TransferService {
             String idempotencyKey
     ) {
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-        String requestFingerprint = fingerprint(request);
+        String normalizedCurrency = request.normalizedCurrency();
+        String requestFingerprint = fingerprint(request, normalizedCurrency);
 
         return transactionRepository.findByIdempotencyKey(normalizedKey)
                 .map(transaction -> resolveExistingTransaction(
@@ -43,20 +43,23 @@ public class TransferService {
                 .orElseGet(() -> executeTransfer(
                         request,
                         normalizedKey,
-                        requestFingerprint
+                        requestFingerprint,
+                        normalizedCurrency
                 ));
     }
 
     private PaymentTransaction executeTransfer(
             TransferRequest request,
             String idempotencyKey,
-            String requestFingerprint
+            String requestFingerprint,
+            String normalizedCurrency
     ) {
         try {
             return transferExecutionService.execute(
                     request,
                     idempotencyKey,
-                    requestFingerprint
+                    requestFingerprint,
+                    normalizedCurrency
             );
         } catch (DataIntegrityViolationException exception) {
             return transactionRepository.findByIdempotencyKey(idempotencyKey)
@@ -99,14 +102,17 @@ public class TransferService {
         return normalizedKey;
     }
 
-    private String fingerprint(TransferRequest request) {
+    private String fingerprint(
+            TransferRequest request,
+            String normalizedCurrency
+    ) {
         String canonicalRequest = String.join(
                 "\u0000",
                 request.fromAccountNumber().trim(),
                 request.toAccountNumber().trim(),
                 request.amount().setScale(4, RoundingMode.UNNECESSARY)
                         .toPlainString(),
-                request.currency().toUpperCase(Locale.ROOT)
+                normalizedCurrency
         );
 
         try {

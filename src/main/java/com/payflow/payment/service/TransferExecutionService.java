@@ -29,7 +29,8 @@ public class TransferExecutionService {
     public PaymentTransaction execute(
             TransferRequest request,
             String idempotencyKey,
-            String requestFingerprint
+            String requestFingerprint,
+            String normalizedCurrency
     ) {
         String fromNumber = request.fromAccountNumber().trim();
         String toNumber = request.toAccountNumber().trim();
@@ -69,8 +70,8 @@ public class TransferExecutionService {
         Account sender = fromNumber.equals(firstNumber) ? first : second;
         Account receiver = toNumber.equals(firstNumber) ? first : second;
 
-        if (!sender.getCurrency().equals(request.currency())
-                || !receiver.getCurrency().equals(request.currency())) {
+        if (!sender.getCurrency().equals(normalizedCurrency)
+                || !receiver.getCurrency().equals(normalizedCurrency)) {
             throw new IllegalArgumentException(
                     "Transfer currency must match both account currencies"
             );
@@ -80,7 +81,7 @@ public class TransferExecutionService {
                 sender,
                 receiver,
                 amount,
-                request.currency(),
+                normalizedCurrency,
                 idempotencyKey,
                 requestFingerprint
         );
@@ -91,6 +92,6 @@ public class TransferExecutionService {
         receiver.credit(amount);
         transaction.markCompleted();
 
-        return transaction;
+        return transactionRepository.saveAndFlush(transaction);
     }
 }
