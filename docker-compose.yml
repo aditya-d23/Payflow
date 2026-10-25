@@ -1,0 +1,88 @@
+# Self-contained local stack: PostgreSQL, Kafka, and PayFlow.
+#
+# It uses its own containers, volume, and host ports, so it never touches an
+# existing `payflow-postgres` container on port 5432.
+#
+#   cp .env.example .env    # then fill in DB_PASSWORD and PAYFLOW_JWT_SECRET
+#   docker compose up --build -d
+#   docker compose logs -f app
+#   docker compose down      # keeps data; add -v to delete this stack's volume
+name: payflow-stack
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: payflow
+      POSTGRES_USER: ${DB_USERNAME:-payflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    ports:
+      - "${COMPOSE_DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d payflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:4.2.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # `dev` seeds PF10001 and accepts HS256 tokens from scripts/dev-token.sh.
+      SPRING_PROFILES_ACTIVE: dev
+      DB_URL: jdbc:postgresql://postgres:5432/payflow
+      DB_USERNAME: ${DB_USERNAME:-payflow}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      PAYFLOW_JWT_SECRET: ${PAYFLOW_JWT_SECRET:?set PAYFLOW_JWT_SECRET in .env}
+      PAYFLOW_KAFKA_ENABLED: "true"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "${COMPOSE_APP_PORT:-8080}:8080"
+    healthcheck:
+      # The JRE image has no curl; bash's /dev/tcp is enough (sh lacks it).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      start_period: 40s
+      retries: 6
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    restart: unless-stopped
+
+volumes:
+  pgdata:
