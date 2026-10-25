@@ -111,5 +111,36 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] k6 scenarios (lookup, transfers, hot account, retries, NSF) with measured results in PERFORMANCE.md. **Found and fixed** an outbox relay bottleneck (142 → 4,060 events/s via pipelined batch publishing; batch default 100 → 500 after measurement).
 
 ### Phase 15–16: Documentation and release verification
-- [ ] README, ARCHITECTURE, SECURITY, TESTING, API, OPERATIONS
-- [ ] Final verification run recorded here
+- [x] README, ARCHITECTURE (Mermaid: system, ER, transfer, rollback, idempotency, outbox), SECURITY, TESTING, API, OPERATIONS, PERFORMANCE
+- [x] API.md and README examples executed verbatim against a fresh Compose stack
+- [x] Final verification (below)
+
+## Final verification (2026-10-25)
+
+| Check | Result |
+| --- | --- |
+| `./mvnw -B clean verify` | BUILD SUCCESS: 76 unit/H2 + 30 PostgreSQL/Kafka integration tests, 0 failures |
+| GitHub Actions | `CI` run on `1165bf4`: Build and test ✅, Docker image ✅ |
+| Migrations on isolated DB | V1–V8 on Testcontainers PostgreSQL and on the Compose stack; V2→V8 upgrade with data reconciles |
+| Docker | Image builds; Compose stack healthy; HTTP smoke test and README quick start pass on a fresh stack |
+| Load | ~340k transfers across k6 scenarios; reconciliation consistent; no negative balances; no ERROR logs |
+| Secret scan | No keys, tokens, or `.env` in tracked files or history; only the labeled test HMAC key and the pre-existing local dev DB default |
+| Bypasses | No tests disabled or skipped; security enabled in every profile |
+
+### Notes and incidents
+
+- `658883f` was pushed with one failing integration test (an over-strict
+  cross-aggregate ordering assertion; my command chain did not gate on the
+  Maven exit code). Fixed in `4a947f3` minutes later. All later commits are
+  gated on a passing build.
+- The original local `payflow` database (container `payflow-postgres`) was
+  only read, never migrated or modified. It will move from V2 to V8 the next
+  time the app starts against it (see OPERATIONS.md, "Upgrading").
+
+### Remaining, by choice or out of scope
+
+- Reversal/refund API; multi-instance load test; gateway rate limiting;
+  OpenTelemetry; Kubernetes manifests; formatter/static analysis in CI.
+- PayFlow is a complete portfolio system, **not** production-ready for a
+  regulated institution (no PCI DSS review, penetration test, or capacity
+  testing at production scale).
