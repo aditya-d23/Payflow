@@ -8,7 +8,6 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Digits;
 
 import java.math.BigDecimal;
-import java.util.Locale;
 
 public record TransferRequest(
 
@@ -36,8 +35,4 @@ public record TransferRequest(
                 message = "Currency must be a 3-letter uppercase code"
         )
         String currency
-) {
-    public String normalizedCurrency() {
-        return currency == null ? null : currency.trim().toUpperCase(Locale.ROOT);
-    }
-}
+) {}

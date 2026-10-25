@@ -8,12 +8,20 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.UUID;
 
 public interface PaymentTransactionRepository
         extends JpaRepository<PaymentTransaction, Long> {
 
-    boolean existsByTransactionReference(
-            java.util.UUID transactionReference
+    @Query("""
+            SELECT t
+            FROM PaymentTransaction t
+            JOIN FETCH t.fromAccount
+            JOIN FETCH t.toAccount
+            WHERE t.transactionReference = :reference
+            """)
+    Optional<PaymentTransaction> findByTransactionReference(
+            @Param("reference") UUID reference
     );
 
     @Query("""

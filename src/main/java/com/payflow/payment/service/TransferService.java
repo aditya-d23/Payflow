@@ -2,123 +2,136 @@
 package com.payflow.payment.service;
 
 import com.payflow.payment.dto.TransferRequest;
+import com.payflow.payment.dto.TransferResponse;
 import com.payflow.payment.entity.PaymentTransaction;
+import com.payflow.payment.exception.ErrorCode;
 import com.payflow.payment.exception.IdempotencyKeyConflictException;
+import com.payflow.payment.exception.InvalidRequestException;
+import com.payflow.payment.exception.TransferNotFoundException;
 import com.payflow.payment.repository.PaymentTransactionRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
-import java.math.RoundingMode;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.regex.Pattern;
 
+/**
+ * Idempotency front door for transfers. Deliberately not transactional: the
+ * execution transaction must be able to fail on the idempotency unique
+ * constraint and roll back, after which this class looks up the winner in a
+ * fresh transaction.
+ */
 @Service
 public class TransferService {
 
+    // Visible ASCII only: keys appear in logs and must not carry control characters.
+    private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[\\x21-\\x7E]{1,255}");
+
     private final PaymentTransactionRepository transactionRepository;
     private final TransferExecutionService transferExecutionService;
+    private final CurrencyPolicy currencyPolicy;
 
     public TransferService(
             PaymentTransactionRepository transactionRepository,
-            TransferExecutionService transferExecutionService
+            TransferExecutionService transferExecutionService,
+            CurrencyPolicy currencyPolicy
     ) {
         this.transactionRepository = transactionRepository;
         this.transferExecutionService = transferExecutionService;
+        this.currencyPolicy = currencyPolicy;
     }
 
-    public PaymentTransaction transfer(
+    public TransferResult transfer(
             TransferRequest request,
             String idempotencyKey
     ) {
-        String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
-        String normalizedCurrency = request.normalizedCurrency();
-        String requestFingerprint = fingerprint(request, normalizedCurrency);
+        TransferCommand command = normalize(request, idempotencyKey);
 
-        return transactionRepository.findByIdempotencyKey(normalizedKey)
-                .map(transaction -> resolveExistingTransaction(
-                        transaction,
-                        requestFingerprint
-                ))
-                .orElseGet(() -> executeTransfer(
-                        request,
-                        normalizedKey,
-                        requestFingerprint,
-                        normalizedCurrency
-                ));
-    }
+        Optional<TransferResult> replay = findReplay(command);
+        if (replay.isPresent()) {
+            return replay.get();
+        }
 
-    private PaymentTransaction executeTransfer(
-            TransferRequest request,
-            String idempotencyKey,
-            String requestFingerprint,
-            String normalizedCurrency
-    ) {
         try {
-            return transferExecutionService.execute(
-                    request,
-                    idempotencyKey,
-                    requestFingerprint,
-                    normalizedCurrency
-            );
+            return new TransferResult(
+                    transferExecutionService.execute(command), false);
         } catch (DataIntegrityViolationException exception) {
-            return transactionRepository.findByIdempotencyKey(idempotencyKey)
-                    .map(transaction -> resolveExistingTransaction(
-                            transaction,
-                            requestFingerprint
-                    ))
-                    .orElseThrow(() -> exception);
+            // Lost the race for this key: the winner has committed, so replay it.
+            // Any other integrity failure has no matching row and is rethrown.
+            return findReplay(command).orElseThrow(() -> exception);
         }
     }
 
-    private PaymentTransaction resolveExistingTransaction(
-            PaymentTransaction transaction,
+    @Transactional(readOnly = true)
+    public TransferResponse getTransfer(UUID transactionReference) {
+        return transactionRepository.findByTransactionReference(transactionReference)
+                .map(TransferResponse::from)
+                .orElseThrow(() -> new TransferNotFoundException(
+                        "Transfer not found: " + transactionReference));
+    }
+
+    private Optional<TransferResult> findReplay(TransferCommand command) {
+        return transactionRepository.findByIdempotencyKey(command.idempotencyKey())
+                .map(existing -> replay(existing, command.requestFingerprint()));
+    }
+
+    private static TransferResult replay(
+            PaymentTransaction existing,
             String requestFingerprint
     ) {
-        if (!transaction.getIdempotencyRequestFingerprint()
-                .equals(requestFingerprint)) {
+        if (!existing.getIdempotencyRequestFingerprint().equals(requestFingerprint)) {
             throw new IdempotencyKeyConflictException(
                     "Idempotency key was already used for a different transfer"
             );
         }
-
-        return transaction;
+        return new TransferResult(TransferResponse.from(existing), true);
     }
 
-    private String normalizeIdempotencyKey(String idempotencyKey) {
-        if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Idempotency-Key header is required"
-            );
+    private TransferCommand normalize(TransferRequest request, String idempotencyKey) {
+        String key = normalizeIdempotencyKey(idempotencyKey);
+        if (request.fromAccountNumber() == null || request.toAccountNumber() == null) {
+            throw new InvalidRequestException(
+                    ErrorCode.VALIDATION_FAILED, "Both account numbers are required");
         }
+        String currency = currencyPolicy.normalizeCurrency(request.currency());
+        String from = request.fromAccountNumber().trim();
+        String to = request.toAccountNumber().trim();
+        var amount = currencyPolicy.normalizeAmount(request.amount(), currency);
 
-        String normalizedKey = idempotencyKey.trim();
-        if (normalizedKey.length() > 255) {
-            throw new IllegalArgumentException(
-                    "Idempotency-Key header must not exceed 255 characters"
-            );
-        }
-
-        return normalizedKey;
-    }
-
-    private String fingerprint(
-            TransferRequest request,
-            String normalizedCurrency
-    ) {
-        String canonicalRequest = String.join(
-                "\u0000",
-                request.fromAccountNumber().trim(),
-                request.toAccountNumber().trim(),
-                request.amount().setScale(4, RoundingMode.UNNECESSARY)
-                        .toPlainString(),
-                normalizedCurrency
+        return new TransferCommand(
+                from, to, amount, currency, key,
+                fingerprint(from, to, amount.toPlainString(), currency)
         );
+    }
 
+    private static String normalizeIdempotencyKey(String idempotencyKey) {
+        String key = idempotencyKey == null ? "" : idempotencyKey.trim();
+        if (!IDEMPOTENCY_KEY.matcher(key).matches()) {
+            throw new InvalidRequestException(
+                    ErrorCode.INVALID_IDEMPOTENCY_KEY,
+                    "Idempotency-Key must be 1-255 visible ASCII characters"
+            );
+        }
+        return key;
+    }
+
+    /**
+     * SHA-256 over the normalized fields, NUL-separated so that field
+     * boundaries cannot be shifted ("AB"+"C" vs "A"+"BC"). The amount is at
+     * storage scale, so 40, 40.0 and 40.0000 fingerprint identically.
+     */
+    static String fingerprint(String... canonicalFields) {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(canonicalRequest.getBytes(StandardCharsets.UTF_8));
-            return java.util.HexFormat.of().formatHex(digest);
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(
+                    String.join("\u0000", canonicalFields)
+                            .getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is not available", exception);
         }

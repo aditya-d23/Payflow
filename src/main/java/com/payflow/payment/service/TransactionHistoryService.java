@@ -75,7 +75,7 @@ public class TransactionHistoryService {
                 transaction.getToAccount().getAccountNumber(),
                 transaction.getAmount(),
                 transaction.getCurrency(),
-                transaction.getStatus(),
+                transaction.getStatus().name(),
                 transaction.getCreatedAt()
         );
     }

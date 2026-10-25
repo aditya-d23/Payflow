@@ -2,7 +2,9 @@ package com.payflow.payment;
 
 import com.payflow.payment.dto.TransferRequest;
 import com.payflow.payment.entity.Account;
+import com.payflow.payment.dto.TransferResponse;
 import com.payflow.payment.entity.PaymentTransaction;
+import com.payflow.payment.entity.TransferStatus;
 import com.payflow.payment.exception.InsufficientBalanceException;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.repository.PaymentTransactionRepository;
@@ -65,7 +67,8 @@ class TransferServiceIntegrationTests {
         createAccount("PF10002", "0.0000");
 
         assertThatThrownBy(() -> transfer(
-                "PF10001", "PF10002", "10.0001", "insufficient-key"
+                // Smallest INR unit above the balance.
+                "PF10001", "PF10002", "10.01", "insufficient-key"
         ))
                 .isInstanceOf(InsufficientBalanceException.class)
                 .hasMessage("Insufficient account balance");
@@ -104,7 +107,7 @@ class TransferServiceIntegrationTests {
 
         assertBalances("PF10001", "60.0000");
         assertBalances("PF10002", "65.0000");
-        assertThat(transaction.getStatus()).isEqualTo("COMPLETED");
+        assertThat(transaction.getStatus()).isEqualTo(TransferStatus.COMPLETED);
         assertThat(transaction.getIdempotencyKey())
                 .isEqualTo("first-transfer-key");
         assertThat(transactionRepository.count()).isEqualTo(1);
@@ -116,7 +119,7 @@ class TransferServiceIntegrationTests {
         createAccount("PF10001", "100.0000");
         createAccount("PF10002", "0.0000");
 
-        PaymentTransaction first = transfer(
+        TransferResponse first = transfer(
                 "PF10001", "PF10002", "40.0000", "retry-key"
         );
 
@@ -133,7 +136,7 @@ class TransferServiceIntegrationTests {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.transactionReference")
-                        .value(first.getTransactionReference().toString()));
+                        .value(first.transactionReference().toString()));
 
         assertBalances("PF10001", "60.0000");
         assertBalances("PF10002", "40.0000");
@@ -200,7 +203,7 @@ class TransferServiceIntegrationTests {
         createAccount("PF10001", "100.0000");
         createAccount("PF10002", "0.0000");
 
-        PaymentTransaction first = transferService.transfer(
+        TransferResponse first = transferService.transfer(
                 new TransferRequest(
                         "PF10001",
                         "PF10002",
@@ -208,15 +211,15 @@ class TransferServiceIntegrationTests {
                         "inr"
                 ),
                 "normalized-currency-key"
-        );
-        PaymentTransaction retry = transfer(
+        ).transfer();
+        TransferResponse retry = transfer(
                 "PF10001", "PF10002", "40.0000",
                 "normalized-currency-key"
         );
 
-        assertThat(first.getCurrency()).isEqualTo("INR");
-        assertThat(retry.getTransactionReference())
-                .isEqualTo(first.getTransactionReference());
+        assertThat(first.currency()).isEqualTo("INR");
+        assertThat(retry.transactionReference())
+                .isEqualTo(first.transactionReference());
         assertBalances("PF10001", "60.0000");
         assertBalances("PF10002", "40.0000");
     }
@@ -311,7 +314,7 @@ class TransferServiceIntegrationTests {
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
         try {
-            List<Future<PaymentTransaction>> results = new ArrayList<>();
+            List<Future<TransferResponse>> results = new ArrayList<>();
             for (int attempt = 0; attempt < 2; attempt++) {
                 results.add(executor.submit(() -> {
                     ready.countDown();
@@ -328,11 +331,11 @@ class TransferServiceIntegrationTests {
             ready.await();
             start.countDown();
 
-            PaymentTransaction first = results.get(0).get();
-            PaymentTransaction second = results.get(1).get();
+            TransferResponse first = results.get(0).get();
+            TransferResponse second = results.get(1).get();
 
-            assertThat(second.getTransactionReference())
-                    .isEqualTo(first.getTransactionReference());
+            assertThat(second.transactionReference())
+                    .isEqualTo(first.transactionReference());
             assertBalances("PF10001", "60.0000");
             assertBalances("PF10002", "40.0000");
             assertThat(transactionRepository.count()).isEqualTo(1);
@@ -349,7 +352,7 @@ class TransferServiceIntegrationTests {
         ));
     }
 
-    private PaymentTransaction transfer(
+    private TransferResponse transfer(
             String fromAccountNumber,
             String toAccountNumber,
             String amount,
@@ -360,7 +363,7 @@ class TransferServiceIntegrationTests {
                 toAccountNumber,
                 new BigDecimal(amount),
                 "INR"
-        ), idempotencyKey);
+        ), idempotencyKey).transfer();
     }
 
     private void assertBalances(String accountNumber, String expectedBalance) {

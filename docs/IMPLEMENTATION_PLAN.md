@@ -57,16 +57,18 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] **D14 (new, fixed):** V3 created `idempotency_request_fingerprint CHAR(64)` while the entity expects VARCHAR, so the app failed to start on PostgreSQL after V3. Fixed forward in `V4__fingerprint_as_varchar.sql`.
 
 ### Phase 2: Accounts
-- [ ] Response DTOs (no entity exposure), status enum, supported currencies
-- [ ] `GET /api/v1/accounts/{accountNumber}/balance`
-- [ ] Duplicate creation race handled by the unique constraint
+- [x] Response DTOs (no entity exposure), status enum, supported currencies (`AccountApiTests`, `CurrencyPolicyTests`)
+- [x] `GET /api/v1/accounts/{accountNumber}/balance`, `PATCH .../status` (close requires zero balance, terminal)
+- [x] Duplicate creation race handled by the unique constraint (409 `ACCOUNT_ALREADY_EXISTS`)
+- [x] Client-supplied opening balances are ignored; accounts open at zero
 
 ### Phase 3: Transfers
-- [ ] Domain exceptions mapped to 4xx (D3)
-- [ ] Account status enforcement (D4), currency precision (D5)
-- [ ] `TransferResponse` DTO (D1), `GET /api/v1/transfers/{reference}`
-- [ ] Lock timeout (D10)
-- [ ] PostgreSQL concurrency tests: same-source contention, opposite-direction transfers
+- [x] Domain exceptions mapped to 4xx (D3) (`TransferApiTests`)
+- [x] Account status enforcement (D4), currency precision (D5)
+- [x] `TransferResponse` DTO (D1), `GET /api/v1/transfers/{reference}`, `completed_at` (V5)
+- [x] Lock timeout of 3s, mapped to 503 `LOCK_TIMEOUT` + `Retry-After` (D10); the key is not consumed, so retries are safe
+- [x] PostgreSQL concurrency tests (`TransferConcurrencyPostgresIT`): 25-way overdraw race, 40 opposite-direction transfers (no deadlock), 10 concurrent duplicates, lock timeout, trigger-forced failures on credit and on the transaction record, 60 mixed transfers conserving total
+- [ ] History query N+1 on account associations (fix with fetch join in the security pass)
 
 ### Phase 4: Idempotency
 - [ ] Key format validation, replay header, caller-scoped uniqueness (D11)
@@ -91,7 +93,7 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [ ] Evaluate and document
 
 ### Phase 9: API quality
-- [ ] Standard error body with code and correlation ID (D8)
+- [x] Standard error body with code and correlation ID (D8)
 - [ ] OpenAPI
 
 ### Phase 10–14: Ops

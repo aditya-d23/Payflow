@@ -1,7 +1,6 @@
 
 package com.payflow.payment.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -24,11 +23,9 @@ public class PaymentTransaction {
     @Column(name = "transaction_reference", nullable = false, unique = true)
     private UUID transactionReference;
 
-    @JsonIgnore
     @Column(name = "idempotency_key", unique = true, length = 255)
     private String idempotencyKey;
 
-    @JsonIgnore
     @Column(name = "idempotency_request_fingerprint", length = 64)
     private String idempotencyRequestFingerprint;
 
@@ -46,11 +43,15 @@ public class PaymentTransaction {
     @Column(nullable = false, length = 3)
     private String currency;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private String status;
+    private TransferStatus status;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
+
+    @Column(name = "completed_at")
+    private OffsetDateTime completedAt;
 
     public PaymentTransaction(
             Account fromAccount,
@@ -67,15 +68,12 @@ public class PaymentTransaction {
         this.toAccount = toAccount;
         this.amount = amount;
         this.currency = currency;
-        this.status = "PENDING";
+        this.status = TransferStatus.PENDING;
         this.createdAt = OffsetDateTime.now();
     }
 
     public void markCompleted() {
-        this.status = "COMPLETED";
-    }
-
-    public void markFailed() {
-        this.status = "FAILED";
+        this.status = TransferStatus.COMPLETED;
+        this.completedAt = OffsetDateTime.now();
     }
 }
