@@ -50,10 +50,11 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 ## Checklist
 
 ### Phase 1: Stabilize
-- [ ] Profiles: `dev` (local defaults), `test`, `prod` (no credential defaults)
-- [ ] DB settings from `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `SERVER_PORT`
-- [ ] PostgreSQL Testcontainers suite running Flyway + `ddl-auto=validate`
-- [ ] Migration upgrade test from V2 with existing data
+- [x] Profiles: `dev` (local defaults), `test`, `prod` (no credential defaults). The base config has no datasource, so `dev` must now be activated explicitly (D7).
+- [x] DB settings from `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `SERVER_PORT`; `.env.example`
+- [x] PostgreSQL Testcontainers suite running Flyway + `ddl-auto=validate` (`support/PostgresIntegrationTest`, run by failsafe in `./mvnw verify`)
+- [x] Migration upgrade test from V2 with existing data (`FlywayMigrationPostgresIT`)
+- [x] **D14 (new, fixed):** V3 created `idempotency_request_fingerprint CHAR(64)` while the entity expects VARCHAR, so the app failed to start on PostgreSQL after V3. Fixed forward in `V4__fingerprint_as_varchar.sql`.
 
 ### Phase 2: Accounts
 - [ ] Response DTOs (no entity exposure), status enum, supported currencies
