@@ -14,7 +14,7 @@ import java.time.Duration;
  */
 @ConfigurationProperties("payflow.outbox")
 public record OutboxProperties(
-        @DefaultValue("100") int batchSize,
+        @DefaultValue("500") int batchSize,
         @DefaultValue("30s") Duration lease,
         @DefaultValue("10") int maxAttempts,
         @DefaultValue("1s") Duration initialBackoff,

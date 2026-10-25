@@ -65,10 +65,12 @@ class OutboxPostgresIT extends PostgresIntegrationTest {
     static class RecordingPublisher implements EventPublisher {
         final List<OutboxMessage> published = new CopyOnWriteArrayList<>();
         final AtomicInteger failuresRemaining = new AtomicInteger();
+        volatile String failingAggregate;
 
         @Override
         public void publish(OutboxMessage message) {
-            if (failuresRemaining.getAndUpdate(n -> Math.max(n - 1, 0)) > 0) {
+            if (message.aggregateId().equals(failingAggregate)
+                    || failuresRemaining.getAndUpdate(n -> Math.max(n - 1, 0)) > 0) {
                 throw new IllegalStateException("broker unavailable");
             }
             published.add(message);
@@ -79,6 +81,21 @@ class OutboxPostgresIT extends PostgresIntegrationTest {
     void resetPublisher() {
         publisher.published.clear();
         publisher.failuresRemaining.set(0);
+        publisher.failingAggregate = null;
+    }
+
+    @Test
+    void oneFailureInABatchDoesNotHoldBackTheOthers() {
+        open("PG80001");
+        open("PG80002");
+        open("PG80003");
+        publisher.failingAggregate = "PG80002";
+
+        assertThat(relay.relayBatch()).isEqualTo(3);
+
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT aggregate_id || ':' || status FROM outbox_events ORDER BY id", String.class))
+                .containsExactly("PG80001:PUBLISHED", "PG80002:PENDING", "PG80003:PUBLISHED");
     }
 
     @Test

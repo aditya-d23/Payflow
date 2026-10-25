@@ -8,6 +8,11 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,6 +43,40 @@ class KafkaEventPublisher implements EventPublisher {
 
     @Override
     public void publish(OutboxMessage message) throws Exception {
+        kafkaTemplate.send(record(message)).get(sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Sends the whole batch before waiting, so a batch costs roughly one
+     * broker round trip instead of one per event. The idempotent producer
+     * keeps per-partition order with several requests in flight.
+     */
+    @Override
+    public Map<Long, Exception> publishAll(List<OutboxMessage> messages) {
+        Map<Long, Exception> failures = new HashMap<>();
+        List<OutboxMessage> sent = new ArrayList<>();
+        List<CompletableFuture<?>> acks = new ArrayList<>();
+        for (OutboxMessage message : messages) {
+            try {
+                acks.add(kafkaTemplate.send(record(message)));
+                sent.add(message);
+            } catch (RuntimeException exception) {
+                failures.put(message.id(), exception);
+            }
+        }
+        long deadline = System.nanoTime() + sendTimeout.toNanos();
+        for (int i = 0; i < sent.size(); i++) {
+            try {
+                long remaining = Math.max(deadline - System.nanoTime(), 0);
+                acks.get(i).get(remaining, TimeUnit.NANOSECONDS);
+            } catch (Exception exception) {
+                failures.put(sent.get(i).id(), exception);
+            }
+        }
+        return failures;
+    }
+
+    private ProducerRecord<String, String> record(OutboxMessage message) {
         ProducerRecord<String, String> record = new ProducerRecord<>(
                 topics.forAggregate(message.aggregateType()),
                 message.aggregateId(),
@@ -46,7 +85,7 @@ class KafkaEventPublisher implements EventPublisher {
                 .add(EVENT_ID_HEADER, bytes(message.eventId().toString()))
                 .add(EVENT_TYPE_HEADER, bytes(message.eventType()))
                 .add(SCHEMA_VERSION_HEADER, bytes(Integer.toString(message.schemaVersion())));
-        kafkaTemplate.send(record).get(sendTimeout.toMillis(), TimeUnit.MILLISECONDS);
+        return record;
     }
 
     private static byte[] bytes(String value) {

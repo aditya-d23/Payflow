@@ -108,7 +108,7 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] Actuator health with liveness/readiness probes (public, no details); Prometheus, metrics, info admin-only; `payflow.transfers{type,outcome}`, `payflow.transfer.duration`, outbox metrics, Hikari pool metrics; bounded labels verified; correlation ID in every log line; ECS JSON logs in prod (`ObservabilityTests`)
 - [x] Multi-stage Dockerfile (JDK 25 build, JRE 25 runtime, non-root, extracted jar) and Compose stack (PostgreSQL 17, Kafka 4.2 KRaft, app) on its own volume and ports. Read-only rootfs, `cap_drop: ALL`, `no-new-privileges`, memory limit, healthchecks. Secrets required from `.env`. Verified with an HTTP smoke test (seed, transfer, replay, 404 isolation, 401, reconciliation, Kafka notifications, metrics).
 - [ ] GitHub Actions CI
-- [ ] k6 performance scripts and measured results
+- [x] k6 scenarios (lookup, transfers, hot account, retries, NSF) with measured results in PERFORMANCE.md. **Found and fixed** an outbox relay bottleneck (142 → 4,060 events/s via pipelined batch publishing; batch default 100 → 500 after measurement).
 
 ### Phase 15–16: Documentation and release verification
 - [ ] README, ARCHITECTURE, SECURITY, TESTING, API, OPERATIONS

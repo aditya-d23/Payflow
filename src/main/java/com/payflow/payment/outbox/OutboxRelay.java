@@ -9,8 +9,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.sql.PreparedStatement;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -88,12 +90,18 @@ public class OutboxRelay {
     /** Claims and processes one batch. Returns the number of events claimed. */
     public int relayBatch() {
         List<OutboxMessage> claimed = claim();
+        if (claimed.isEmpty()) {
+            return 0;
+        }
+        Map<Long, Exception> failures = publisher.publishAll(claimed);
+        markPublished(claimed.stream()
+                .map(OutboxMessage::id)
+                .filter(id -> !failures.containsKey(id))
+                .toArray(Long[]::new));
         for (OutboxMessage message : claimed) {
-            try {
-                publisher.publish(message);
-                markPublished(message.id());
-            } catch (Exception exception) {
-                markFailed(message, exception);
+            Exception failure = failures.get(message.id());
+            if (failure != null) {
+                markFailed(message, failure);
             }
         }
         return claimed.size();
@@ -129,14 +137,21 @@ public class OutboxRelay {
         return claimed.stream().sorted(Comparator.comparingLong(OutboxMessage::id)).toList();
     }
 
-    private void markPublished(long id) {
-        jdbcTemplate.update("""
-                UPDATE outbox_events
-                SET status = 'PUBLISHED', published_at = now(),
-                    locked_until = NULL, last_error = NULL
-                WHERE id = ?
-                """, id);
-        published.increment();
+    private void markPublished(Long[] ids) {
+        if (ids.length == 0) {
+            return;
+        }
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement("""
+                    UPDATE outbox_events
+                    SET status = 'PUBLISHED', published_at = now(),
+                        locked_until = NULL, last_error = NULL
+                    WHERE id = ANY(?)
+                    """);
+            statement.setArray(1, connection.createArrayOf("bigint", ids));
+            return statement;
+        });
+        published.increment(ids.length);
     }
 
     private void markFailed(OutboxMessage message, Exception exception) {
