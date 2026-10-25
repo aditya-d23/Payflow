@@ -11,6 +11,8 @@ import com.payflow.payment.exception.AccountNotFoundException;
 import com.payflow.payment.exception.ErrorCode;
 import com.payflow.payment.exception.ForbiddenOperationException;
 import com.payflow.payment.exception.InvalidRequestException;
+import com.payflow.payment.outbox.OutboxService;
+import com.payflow.payment.outbox.PayflowEvents;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.security.Caller;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -29,12 +31,15 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
     private final CurrencyPolicy currencyPolicy;
+    private final OutboxService outboxService;
 
     public AccountService(
             AccountRepository accountRepository,
-            CurrencyPolicy currencyPolicy) {
+            CurrencyPolicy currencyPolicy,
+            OutboxService outboxService) {
         this.accountRepository = accountRepository;
         this.currencyPolicy = currencyPolicy;
+        this.outboxService = outboxService;
     }
 
     @Transactional
@@ -59,17 +64,28 @@ public class AccountService {
             throw new AccountAlreadyExistsException("Account number already exists");
         }
 
+        Account account;
         try {
-            Account account = accountRepository.saveAndFlush(new Account(
+            account = accountRepository.saveAndFlush(new Account(
                     ownerId,
                     accountNumber,
                     BigDecimal.ZERO,
                     currency
             ));
-            return AccountResponse.from(account);
         } catch (DataIntegrityViolationException exception) {
             throw new AccountAlreadyExistsException("Account number already exists");
         }
+        outboxService.record(
+                PayflowEvents.AccountCreated.TYPE,
+                PayflowEvents.AccountCreated.VERSION,
+                PayflowEvents.ACCOUNT_AGGREGATE,
+                account.getAccountNumber(),
+                new PayflowEvents.AccountCreated(
+                        account.getAccountNumber(),
+                        account.getOwnerId(),
+                        account.getCurrency(),
+                        account.getCreatedAt()));
+        return AccountResponse.from(account);
     }
 
     @Transactional(readOnly = true)

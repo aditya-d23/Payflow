@@ -8,6 +8,8 @@ import com.payflow.payment.entity.TransferType;
 import com.payflow.payment.exception.AccountNotFoundException;
 import com.payflow.payment.exception.ErrorCode;
 import com.payflow.payment.exception.TransferRejectedException;
+import com.payflow.payment.outbox.OutboxService;
+import com.payflow.payment.outbox.PayflowEvents;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.repository.PaymentTransactionRepository;
 import org.springframework.stereotype.Service;
@@ -19,15 +21,18 @@ public class TransferExecutionService {
     private final AccountRepository accountRepository;
     private final PaymentTransactionRepository transactionRepository;
     private final LedgerService ledgerService;
+    private final OutboxService outboxService;
 
     public TransferExecutionService(
             AccountRepository accountRepository,
             PaymentTransactionRepository transactionRepository,
-            LedgerService ledgerService
+            LedgerService ledgerService,
+            OutboxService outboxService
     ) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.ledgerService = ledgerService;
+        this.outboxService = outboxService;
     }
 
     /**
@@ -97,7 +102,23 @@ public class TransferExecutionService {
                 transaction, sender, receiver);
         transaction.markCompleted();
 
-        return TransferResponse.from(transactionRepository.saveAndFlush(transaction));
+        TransferResponse response =
+                TransferResponse.from(transactionRepository.saveAndFlush(transaction));
+        // Same transaction: the event exists only if the money moved.
+        outboxService.record(
+                PayflowEvents.TransferCompleted.TYPE,
+                PayflowEvents.TransferCompleted.VERSION,
+                PayflowEvents.TRANSFER_AGGREGATE,
+                response.transactionReference().toString(),
+                new PayflowEvents.TransferCompleted(
+                        response.transactionReference(),
+                        response.type(),
+                        response.fromAccountNumber(),
+                        response.toAccountNumber(),
+                        response.amount(),
+                        response.currency(),
+                        response.completedAt()));
+        return response;
     }
 
     /**
