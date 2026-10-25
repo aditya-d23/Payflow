@@ -1,9 +1,8 @@
-
 package com.payflow.payment.exception;
 
-public class InsufficientBalanceException extends RuntimeException {
+public class InsufficientBalanceException extends PayflowException {
 
     public InsufficientBalanceException(String message) {
-        super(message);
+        super(ErrorCode.INSUFFICIENT_FUNDS, message);
     }
 }

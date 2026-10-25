@@ -1,7 +1,9 @@
 
 package com.payflow.payment.entity;
 
+import com.payflow.payment.exception.ErrorCode;
 import com.payflow.payment.exception.InsufficientBalanceException;
+import com.payflow.payment.exception.TransferRejectedException;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -29,8 +31,9 @@ public class Account {
     @Column(name = "currency", nullable = false, length = 3)
     private String currency;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private String status;
+    private AccountStatus status;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -39,9 +42,35 @@ public class Account {
         this.accountNumber = accountNumber;
         this.balance = balance;
         this.currency = currency;
-        this.status = "ACTIVE";
+        this.status = AccountStatus.ACTIVE;
         this.createdAt = OffsetDateTime.now();
     }
+
+    public void ensureActive() {
+        if (status != AccountStatus.ACTIVE) {
+            throw new TransferRejectedException(
+                    ErrorCode.ACCOUNT_NOT_ACTIVE,
+                    "Account " + accountNumber + " is " + status
+            );
+        }
+    }
+
+    public void changeStatus(AccountStatus target) {
+        if (status == AccountStatus.CLOSED && target != AccountStatus.CLOSED) {
+            throw new TransferRejectedException(
+                    ErrorCode.INVALID_ACCOUNT_STATE,
+                    "A closed account cannot be reopened"
+            );
+        }
+        if (target == AccountStatus.CLOSED && balance.signum() != 0) {
+            throw new TransferRejectedException(
+                    ErrorCode.INVALID_ACCOUNT_STATE,
+                    "Only an account with a zero balance can be closed"
+            );
+        }
+        status = target;
+    }
+
     public void debit(BigDecimal amount) {
         if (amount == null || amount.signum() <= 0) {
             throw new IllegalArgumentException(
