@@ -194,6 +194,15 @@ class SecurityApiTests {
     }
 
     @Test
+    void blankOwnerIdsAreRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/accounts").with(admin())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accountNumber\":\"PF70010\",\"currency\":\"INR\",\"ownerId\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
     void administratorsCanAssignOwnersToPreAuthenticationAccounts() throws Exception {
         accountRepository.save(new Account("PF70001", BigDecimal.TEN, "INR"));
         mockMvc.perform(get("/api/v1/accounts/PF70001").with(customer(ALICE)))

@@ -66,9 +66,11 @@ class OutboxPostgresIT extends PostgresIntegrationTest {
         final List<OutboxMessage> published = new CopyOnWriteArrayList<>();
         final AtomicInteger failuresRemaining = new AtomicInteger();
         volatile String failingAggregate;
+        volatile Runnable duringPublish = () -> {};
 
         @Override
         public void publish(OutboxMessage message) {
+            duringPublish.run();
             if (message.aggregateId().equals(failingAggregate)
                     || failuresRemaining.getAndUpdate(n -> Math.max(n - 1, 0)) > 0) {
                 throw new IllegalStateException("broker unavailable");
@@ -82,6 +84,27 @@ class OutboxPostgresIT extends PostgresIntegrationTest {
         publisher.published.clear();
         publisher.failuresRemaining.set(0);
         publisher.failingAggregate = null;
+        publisher.duringPublish = () -> {};
+    }
+
+    @Test
+    void aRelayThatLostItsLeaseCannotOverwriteTheNewClaim() {
+        open("PG80001");
+        publisher.failuresRemaining.set(1);
+        // While this relay is publishing, its lease expires and another relay
+        // claims the event (bumping attempts and taking a fresh lease).
+        publisher.duringPublish = () -> jdbcTemplate.update(
+                "UPDATE outbox_events SET attempts = attempts + 1, "
+                        + "locked_until = now() + interval '1 hour'");
+
+        relay.relayBatch();
+
+        Map<String, Object> row = jdbcTemplate.queryForMap("SELECT status, attempts, "
+                + "last_error, locked_until > now() AS leased FROM outbox_events");
+        assertThat(row).containsEntry("status", "PENDING")
+                .containsEntry("attempts", 2)
+                .containsEntry("leased", true);
+        assertThat(row.get("last_error")).isNull();
     }
 
     @Test

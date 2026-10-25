@@ -78,9 +78,12 @@ public class TransferService {
             CashMovementRequest request, String idempotencyKey, Caller caller) {
         requireAdmin(caller);
         String currency = currencyPolicy.normalizeCurrency(request.currency());
-        return execute(normalize(caller, TransferType.DEPOSIT,
-                systemAccounts.ensureFundingAccount(currency), request.accountNumber(),
-                request.amount(), currency, idempotencyKey));
+        TransferCommand command = normalize(caller, TransferType.DEPOSIT,
+                SystemAccounts.fundingAccountNumber(currency), request.accountNumber(),
+                request.amount(), currency, idempotencyKey);
+        // Only after validation, so a rejected request never creates an account.
+        systemAccounts.ensureFundingAccount(currency);
+        return execute(command);
     }
 
     /** Money leaving PayFlow: debits the customer, credits the funding account. */
@@ -88,9 +91,11 @@ public class TransferService {
             CashMovementRequest request, String idempotencyKey, Caller caller) {
         requireAdmin(caller);
         String currency = currencyPolicy.normalizeCurrency(request.currency());
-        return execute(normalize(caller, TransferType.WITHDRAWAL,
-                request.accountNumber(), systemAccounts.ensureFundingAccount(currency),
-                request.amount(), currency, idempotencyKey));
+        TransferCommand command = normalize(caller, TransferType.WITHDRAWAL,
+                request.accountNumber(), SystemAccounts.fundingAccountNumber(currency),
+                request.amount(), currency, idempotencyKey);
+        systemAccounts.ensureFundingAccount(currency);
+        return execute(command);
     }
 
     /**

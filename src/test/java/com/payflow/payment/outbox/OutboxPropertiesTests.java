@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class OutboxPropertiesTests {
 
@@ -23,5 +24,16 @@ class OutboxPropertiesTests {
     void backoffIsCappedAndNeverOverflows() {
         assertThat(properties.backoffAfter(10)).isEqualTo(Duration.ofMinutes(5));
         assertThat(properties.backoffAfter(1_000)).isEqualTo(Duration.ofMinutes(5));
+    }
+
+    @Test
+    void rejectsSettingsThatWouldHangOrNeverRetry() {
+        Duration second = Duration.ofSeconds(1);
+        assertThatThrownBy(() -> new OutboxProperties(0, second, 10, second, second))
+                .hasMessageContaining("batch-size");
+        assertThatThrownBy(() -> new OutboxProperties(1, second, 0, second, second))
+                .hasMessageContaining("max-attempts");
+        assertThatThrownBy(() -> new OutboxProperties(1, Duration.ZERO, 1, second, second))
+                .hasMessageContaining("lease");
     }
 }

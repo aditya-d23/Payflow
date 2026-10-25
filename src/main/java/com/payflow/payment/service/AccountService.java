@@ -53,6 +53,11 @@ public class AccountService {
                             + " are reserved");
         }
         String ownerId = request.ownerId() == null ? caller.subject() : request.ownerId();
+        if (ownerId.isBlank()) {
+            // A blank owner can never match a JWT subject: nobody could use it.
+            throw new InvalidRequestException(
+                    ErrorCode.VALIDATION_FAILED, "Owner ID must not be blank");
+        }
         if (!ownerId.equals(caller.subject()) && !caller.admin()) {
             throw new ForbiddenOperationException(
                     "Only administrators can open accounts for another owner");
@@ -110,6 +115,12 @@ public class AccountService {
         requireAdmin(caller);
         // Lock so a status change cannot interleave with an in-flight transfer.
         Account account = lock(accountNumber);
+        if (account.isSystem()) {
+            // Freezing a funding account would halt every deposit and
+            // withdrawal in its currency; that needs a deliberate mechanism.
+            throw new InvalidRequestException(
+                    ErrorCode.INVALID_ACCOUNT_STATE, "System account status cannot be changed");
+        }
         account.changeStatus(status);
         return AccountResponse.from(account);
     }

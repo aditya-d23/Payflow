@@ -156,11 +156,21 @@ export default function (data) {
   }
 }
 
+// k6 durations such as "30s", "2m" or "1h30m"; parseInt("2m") would give 2.
+function durationSeconds(value) {
+  const units = { h: 3600, m: 60, s: 1 };
+  let total = 0;
+  for (const [, n, unit] of value.matchAll(/(\d+(?:\.\d+)?)(h|ms|m|s)/g)) {
+    total += unit === 'ms' ? Number(n) / 1000 : Number(n) * units[unit];
+  }
+  return total || parseFloat(value);
+}
+
 export function handleSummary(data) {
   const m = data.metrics;
   const d = m[`http_req_duration{scenario:${SCENARIO}}`].values;
   const requests = m[`http_reqs{scenario:${SCENARIO}}`].values.count;
-  const seconds = parseInt(DURATION, 10);
+  const seconds = durationSeconds(DURATION);
   const summary = {
     scenario: SCENARIO, vus: VUS, duration: DURATION,
     requests,

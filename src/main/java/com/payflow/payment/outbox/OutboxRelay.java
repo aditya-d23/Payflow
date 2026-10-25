@@ -154,26 +154,37 @@ public class OutboxRelay {
         published.increment(ids.length);
     }
 
+    /**
+     * Fenced on the claim: every claim increments {@code attempts}, so a relay
+     * whose lease expired (and whose row another relay has since claimed or
+     * published) matches nothing and cannot clobber the newer state.
+     */
     private void markFailed(OutboxMessage message, Exception exception) {
         String error = truncate(exception.getClass().getName() + ": " + exception.getMessage());
         if (message.attempts() >= properties.maxAttempts()) {
-            jdbcTemplate.update("""
+            int updated = jdbcTemplate.update("""
                     UPDATE outbox_events
                     SET status = 'DEAD', locked_until = NULL, last_error = ?
-                    WHERE id = ?
-                    """, error, message.id());
+                    WHERE id = ? AND status = 'PENDING' AND attempts = ?
+                    """, error, message.id(), message.attempts());
+            if (updated == 0) {
+                return; // lease lost; the current claimant decides
+            }
             dead.increment();
             log.error("Outbox event {} marked DEAD after {} attempts: {}",
                     message.eventId(), message.attempts(), error);
             return;
         }
         double delaySeconds = properties.backoffAfter(message.attempts()).toMillis() / 1000.0;
-        jdbcTemplate.update("""
+        int updated = jdbcTemplate.update("""
                 UPDATE outbox_events
                 SET available_at = now() + make_interval(secs => ?),
                     locked_until = NULL, last_error = ?
-                WHERE id = ?
-                """, delaySeconds, error, message.id());
+                WHERE id = ? AND status = 'PENDING' AND attempts = ?
+                """, delaySeconds, error, message.id(), message.attempts());
+        if (updated == 0) {
+            return; // lease lost; the current claimant decides
+        }
         failed.increment();
         log.warn("Outbox event {} attempt {} failed; retrying in {}s: {}",
                 message.eventId(), message.attempts(), delaySeconds, error);

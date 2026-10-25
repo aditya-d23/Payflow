@@ -1,5 +1,6 @@
 package com.payflow.payment.outbox;
 
+import com.payflow.payment.service.SystemAccounts;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -70,7 +71,7 @@ class TransferNotificationConsumer {
     }
 
     private void notify(UUID eventId, String accountNumber, String message) {
-        if (accountNumber.startsWith("SYS-")) {
+        if (SystemAccounts.isReserved(accountNumber)) {
             return;
         }
         jdbcTemplate.update("""

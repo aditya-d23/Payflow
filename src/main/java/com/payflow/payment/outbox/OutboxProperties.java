@@ -20,6 +20,20 @@ public record OutboxProperties(
         @DefaultValue("1s") Duration initialBackoff,
         @DefaultValue("5m") Duration maxBackoff
 ) {
+    public OutboxProperties {
+        // relayPending() loops while a batch is full; a zero batch size would
+        // never terminate.
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("payflow.outbox.batch-size must be at least 1");
+        }
+        if (maxAttempts < 1) {
+            throw new IllegalArgumentException("payflow.outbox.max-attempts must be at least 1");
+        }
+        if (lease.isNegative() || lease.isZero()) {
+            throw new IllegalArgumentException("payflow.outbox.lease must be positive");
+        }
+    }
+
     Duration backoffAfter(int attempts) {
         long multiplier = 1L << Math.min(Math.max(attempts - 1, 0), 30);
         Duration delay = initialBackoff.multipliedBy(multiplier);

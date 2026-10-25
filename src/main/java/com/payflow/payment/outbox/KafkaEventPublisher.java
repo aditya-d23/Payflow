@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Publishes to one topic per aggregate type, keyed by aggregate ID so all
@@ -56,7 +57,16 @@ class KafkaEventPublisher implements EventPublisher {
         Map<Long, Exception> failures = new HashMap<>();
         List<OutboxMessage> sent = new ArrayList<>();
         List<CompletableFuture<?>> acks = new ArrayList<>();
+        // One deadline for the whole batch, sends included: send() itself can
+        // block for max.block.ms per record while metadata is unavailable, and
+        // the batch must finish well inside the relay's lease.
+        long deadline = System.nanoTime() + sendTimeout.toNanos();
         for (OutboxMessage message : messages) {
+            if (System.nanoTime() - deadline >= 0) {
+                failures.put(message.id(), new TimeoutException(
+                        "Batch send deadline of " + sendTimeout + " elapsed before sending"));
+                continue;
+            }
             try {
                 acks.add(kafkaTemplate.send(record(message)));
                 sent.add(message);
@@ -64,7 +74,6 @@ class KafkaEventPublisher implements EventPublisher {
                 failures.put(message.id(), exception);
             }
         }
-        long deadline = System.nanoTime() + sendTimeout.toNanos();
         for (int i = 0; i < sent.size(); i++) {
             try {
                 long remaining = Math.max(deadline - System.nanoTime(), 0);
