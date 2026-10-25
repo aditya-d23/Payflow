@@ -7,6 +7,7 @@ import com.payflow.payment.dto.TransferRequest;
 import com.payflow.payment.service.AccountService;
 import com.payflow.payment.service.ReconciliationService;
 import com.payflow.payment.service.TransferService;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.support.PostgresIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LedgerPostgresIT extends PostgresIntegrationTest {
+
+    private static final Caller ALICE = Caller.customer("alice");
+    private static final Caller ADMIN = Caller.admin("ops-admin");
 
     @Autowired
     private AccountService accountService;
@@ -44,7 +48,7 @@ class LedgerPostgresIT extends PostgresIntegrationTest {
         deposit("PG50001", "100.00", "fund-1");
 
         transferService.transfer(new TransferRequest(
-                "PG50001", "PG50002", new BigDecimal("40.00"), "INR"), "ledger-pair");
+                "PG50001", "PG50002", new BigDecimal("40.00"), "INR"), "ledger-pair", ALICE);
 
         List<Map<String, Object>> entries = jdbcTemplate.queryForList("""
                 SELECT a.account_number, e.direction, e.amount
@@ -81,10 +85,10 @@ class LedgerPostgresIT extends PostgresIntegrationTest {
                     switch (n % 4) {
                         case 0 -> deposit(accounts[n % 4], "3.00", "dep-" + n);
                         case 1 -> transferService.withdraw(new CashMovementRequest(
-                                accounts[n % 4], new BigDecimal("2.00"), "INR"), "wd-" + n);
+                                accounts[n % 4], new BigDecimal("2.00"), "INR"), "wd-" + n, ADMIN);
                         default -> transferService.transfer(new TransferRequest(
                                 accounts[n % 4], accounts[(n + 1) % 4],
-                                new BigDecimal("7.50"), "INR"), "tr-" + n);
+                                new BigDecimal("7.50"), "INR"), "tr-" + n, ALICE);
                     }
                 } catch (RuntimeException failure) {
                     failures.add(failure);
@@ -170,23 +174,23 @@ class LedgerPostgresIT extends PostgresIntegrationTest {
         deposit("PG50001", "10.00", "fund-1");
 
         assertThatThrownBy(() -> transferService.transfer(new TransferRequest(
-                "PG50001", "SYS-FUNDING-INR", BigDecimal.ONE, "INR"), "to-system"))
+                "PG50001", "SYS-FUNDING-INR", BigDecimal.ONE, "INR"), "to-system", ALICE))
                 .hasMessageContaining("Account not found");
         assertThatThrownBy(() -> transferService.transfer(new TransferRequest(
-                "SYS-FUNDING-INR", "PG50001", BigDecimal.ONE, "INR"), "from-system"))
+                "SYS-FUNDING-INR", "PG50001", BigDecimal.ONE, "INR"), "from-system", ALICE))
                 .hasMessageContaining("Account not found");
         assertThatThrownBy(() -> accountService.createAccount(
-                new CreateAccountRequest("sys-mine", "INR")))
+                new CreateAccountRequest("sys-mine", "INR"), ALICE))
                 .hasMessageContaining("reserved");
     }
 
     private void open(String accountNumber) {
-        accountService.createAccount(new CreateAccountRequest(accountNumber, "INR"));
+        accountService.createAccount(new CreateAccountRequest(accountNumber, "INR"), ALICE);
     }
 
     private void deposit(String accountNumber, String amount, String key) {
         transferService.deposit(new CashMovementRequest(
-                accountNumber, new BigDecimal(amount), "INR"), key);
+                accountNumber, new BigDecimal(amount), "INR"), key, ADMIN);
     }
 
     private Long id(String accountNumber) {

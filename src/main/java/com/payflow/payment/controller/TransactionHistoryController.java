@@ -2,6 +2,7 @@ package com.payflow.payment.controller;
 
 import com.payflow.payment.dto.PageResponse;
 import com.payflow.payment.dto.TransactionHistoryItemResponse;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.service.TransactionHistoryService;
 
 import org.springframework.http.HttpStatus;
@@ -23,7 +24,8 @@ public class TransactionHistoryController {
     public PageResponse<TransactionHistoryItemResponse> getTransactions(
             @PathVariable String accountNumber,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "10") int size,
+            Caller caller) {
 
         if (page < 0) {
             throw new ResponseStatusException(
@@ -40,7 +42,7 @@ public class TransactionHistoryController {
         }
 
         return transactionHistoryService.getTransactions(
-                accountNumber, page, size
+                accountNumber, page, size, caller
         );
     }
 }

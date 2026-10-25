@@ -7,6 +7,7 @@ import com.payflow.payment.entity.PaymentTransaction;
 import com.payflow.payment.exception.AccountNotFoundException;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.repository.PaymentTransactionRepository;
+import com.payflow.payment.security.Caller;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -32,10 +33,12 @@ public class TransactionHistoryService {
     public PageResponse<TransactionHistoryItemResponse> getTransactions(
             String accountNumber,
             int page,
-            int size) {
+            int size,
+            Caller caller) {
 
         Account account = accountRepository
                 .findByAccountNumber(accountNumber)
+                .filter(caller::canView)
                 .orElseThrow(() -> new AccountNotFoundException(
                         "Account not found: " + accountNumber
                 ));

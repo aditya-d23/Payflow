@@ -7,10 +7,12 @@ import com.payflow.payment.dto.TransferResponse;
 import com.payflow.payment.entity.PaymentTransaction;
 import com.payflow.payment.entity.TransferType;
 import com.payflow.payment.exception.ErrorCode;
+import com.payflow.payment.exception.ForbiddenOperationException;
 import com.payflow.payment.exception.IdempotencyKeyConflictException;
 import com.payflow.payment.exception.InvalidRequestException;
 import com.payflow.payment.exception.TransferNotFoundException;
 import com.payflow.payment.repository.PaymentTransactionRepository;
+import com.payflow.payment.security.Caller;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,25 +57,30 @@ public class TransferService {
 
     public TransferResult transfer(
             TransferRequest request,
-            String idempotencyKey
+            String idempotencyKey,
+            Caller caller
     ) {
-        return execute(normalize(TransferType.TRANSFER,
+        return execute(normalize(caller, TransferType.TRANSFER,
                 request.fromAccountNumber(), request.toAccountNumber(),
                 request.amount(), request.currency(), idempotencyKey));
     }
 
     /** Money entering PayFlow: credits the customer, debits the funding account. */
-    public TransferResult deposit(CashMovementRequest request, String idempotencyKey) {
+    public TransferResult deposit(
+            CashMovementRequest request, String idempotencyKey, Caller caller) {
+        requireAdmin(caller);
         String currency = currencyPolicy.normalizeCurrency(request.currency());
-        return execute(normalize(TransferType.DEPOSIT,
+        return execute(normalize(caller, TransferType.DEPOSIT,
                 systemAccounts.ensureFundingAccount(currency), request.accountNumber(),
                 request.amount(), currency, idempotencyKey));
     }
 
     /** Money leaving PayFlow: debits the customer, credits the funding account. */
-    public TransferResult withdraw(CashMovementRequest request, String idempotencyKey) {
+    public TransferResult withdraw(
+            CashMovementRequest request, String idempotencyKey, Caller caller) {
+        requireAdmin(caller);
         String currency = currencyPolicy.normalizeCurrency(request.currency());
-        return execute(normalize(TransferType.WITHDRAWAL,
+        return execute(normalize(caller, TransferType.WITHDRAWAL,
                 request.accountNumber(), systemAccounts.ensureFundingAccount(currency),
                 request.amount(), currency, idempotencyKey));
     }
@@ -94,16 +101,20 @@ public class TransferService {
         }
     }
 
+    /** Visible to administrators and to the owners of either account. */
     @Transactional(readOnly = true)
-    public TransferResponse getTransfer(UUID transactionReference) {
+    public TransferResponse getTransfer(UUID transactionReference, Caller caller) {
         return transactionRepository.findByTransactionReference(transactionReference)
+                .filter(t -> caller.canView(t.getFromAccount())
+                        || caller.canView(t.getToAccount()))
                 .map(TransferResponse::from)
                 .orElseThrow(() -> new TransferNotFoundException(
                         "Transfer not found: " + transactionReference));
     }
 
     private Optional<TransferResult> findReplay(TransferCommand command) {
-        return transactionRepository.findByIdempotencyKey(command.idempotencyKey())
+        return transactionRepository.findByIdempotencyKey(
+                        command.caller().subject(), command.idempotencyKey())
                 .map(existing -> replay(existing, command.requestFingerprint()));
     }
 
@@ -119,7 +130,15 @@ public class TransferService {
         return new TransferResult(TransferResponse.from(existing), true);
     }
 
+    private static void requireAdmin(Caller caller) {
+        if (!caller.admin()) {
+            throw new ForbiddenOperationException(
+                    "Deposits and withdrawals require the " + Caller.ADMIN_SCOPE + " scope");
+        }
+    }
+
     private TransferCommand normalize(
+            Caller caller,
             TransferType type,
             String fromAccountNumber,
             String toAccountNumber,
@@ -140,7 +159,7 @@ public class TransferService {
         // involve a SYS- account, transfers never do), so it is not fingerprinted;
         // this keeps fingerprints of pre-ledger transfers valid.
         return new TransferCommand(
-                type, from, to, amount, currency, key,
+                caller, type, from, to, amount, currency, key,
                 fingerprint(from, to, amount.toPlainString(), currency)
         );
     }

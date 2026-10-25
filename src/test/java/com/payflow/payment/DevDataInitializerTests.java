@@ -4,6 +4,7 @@ import com.payflow.payment.config.DevDataInitializer;
 import com.payflow.payment.dto.CashMovementRequest;
 import com.payflow.payment.dto.CreateAccountRequest;
 import com.payflow.payment.repository.AccountRepository;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.service.AccountService;
 import com.payflow.payment.service.TransferService;
 import org.junit.jupiter.api.Test;
@@ -14,7 +15,6 @@ import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -35,10 +35,12 @@ class DevDataInitializerTests {
 
         initializer.run(new DefaultApplicationArguments());
 
-        verify(accountService).createAccount(new CreateAccountRequest("PF10001", "INR"));
+        verify(accountService).createAccount(
+                eq(new CreateAccountRequest("PF10001", "INR", "dev-user")), any(Caller.class));
         ArgumentCaptor<CashMovementRequest> deposit =
                 ArgumentCaptor.forClass(CashMovementRequest.class);
-        verify(transferService).deposit(deposit.capture(), eq("dev-seed-PF10001"));
+        verify(transferService).deposit(
+                deposit.capture(), eq("dev-seed-PF10001"), any(Caller.class));
         assertThat(deposit.getValue().accountNumber()).isEqualTo("PF10001");
         assertThat(deposit.getValue().amount()).isEqualByComparingTo(new BigDecimal("1000.00"));
         assertThat(deposit.getValue().currency()).isEqualTo("INR");

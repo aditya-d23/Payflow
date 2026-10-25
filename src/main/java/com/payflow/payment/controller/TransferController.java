@@ -3,6 +3,7 @@ package com.payflow.payment.controller;
 
 import com.payflow.payment.dto.TransferRequest;
 import com.payflow.payment.dto.TransferResponse;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.service.TransferResult;
 import com.payflow.payment.service.TransferService;
 import jakarta.validation.Valid;
@@ -33,9 +34,10 @@ public class TransferController {
     @PostMapping
     public ResponseEntity<TransferResponse> transfer(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @Valid @RequestBody TransferRequest request
+            @Valid @RequestBody TransferRequest request,
+            Caller caller
     ) {
-        TransferResult result = transferService.transfer(request, idempotencyKey);
+        TransferResult result = transferService.transfer(request, idempotencyKey, caller);
         TransferResponse transfer = result.transfer();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .location(URI.create("/api/v1/transfers/"
@@ -45,7 +47,8 @@ public class TransferController {
     }
 
     @GetMapping("/{transactionReference}")
-    public TransferResponse getTransfer(@PathVariable UUID transactionReference) {
-        return transferService.getTransfer(transactionReference);
+    public TransferResponse getTransfer(
+            @PathVariable UUID transactionReference, Caller caller) {
+        return transferService.getTransfer(transactionReference, caller);
     }
 }

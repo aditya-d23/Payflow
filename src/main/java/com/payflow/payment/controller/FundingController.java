@@ -2,6 +2,7 @@ package com.payflow.payment.controller;
 
 import com.payflow.payment.dto.CashMovementRequest;
 import com.payflow.payment.dto.TransferResponse;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.service.TransferResult;
 import com.payflow.payment.service.TransferService;
 import jakarta.validation.Valid;
@@ -32,15 +33,17 @@ public class FundingController {
     @PostMapping("/deposits")
     public ResponseEntity<TransferResponse> deposit(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @Valid @RequestBody CashMovementRequest request) {
-        return created(transferService.deposit(request, idempotencyKey));
+            @Valid @RequestBody CashMovementRequest request,
+            Caller caller) {
+        return created(transferService.deposit(request, idempotencyKey, caller));
     }
 
     @PostMapping("/withdrawals")
     public ResponseEntity<TransferResponse> withdraw(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @Valid @RequestBody CashMovementRequest request) {
-        return created(transferService.withdraw(request, idempotencyKey));
+            @Valid @RequestBody CashMovementRequest request,
+            Caller caller) {
+        return created(transferService.withdraw(request, idempotencyKey, caller));
     }
 
     private static ResponseEntity<TransferResponse> created(TransferResult result) {

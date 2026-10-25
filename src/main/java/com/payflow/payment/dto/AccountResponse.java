@@ -7,6 +7,7 @@ import java.time.OffsetDateTime;
 
 public record AccountResponse(
         String accountNumber,
+        String ownerId,
         String currency,
         String status,
         BigDecimal balance,
@@ -15,6 +16,7 @@ public record AccountResponse(
     public static AccountResponse from(Account account) {
         return new AccountResponse(
                 account.getAccountNumber(),
+                account.getOwnerId(),
                 account.getCurrency(),
                 account.getStatus().name(),
                 account.getBalance(),

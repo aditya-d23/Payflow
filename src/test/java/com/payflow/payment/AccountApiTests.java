@@ -3,6 +3,9 @@ package com.payflow.payment;
 import com.payflow.payment.entity.Account;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.support.H2Tables;
+import static com.payflow.payment.support.TestJwt.ALICE;
+import static com.payflow.payment.support.TestJwt.admin;
+import static com.payflow.payment.support.TestJwt.customer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -97,12 +100,12 @@ class AccountApiTests {
 
     @Test
     void returnsAccountAndBalance() throws Exception {
-        accountRepository.save(new Account("PF30001", new BigDecimal("12.50"), "INR"));
+        accountRepository.save(new Account(ALICE, "PF30001", new BigDecimal("12.50"), "INR"));
 
-        mockMvc.perform(get("/api/v1/accounts/PF30001"))
+        mockMvc.perform(get("/api/v1/accounts/PF30001").with(customer(ALICE)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountNumber").value("PF30001"));
-        mockMvc.perform(get("/api/v1/accounts/PF30001/balance"))
+        mockMvc.perform(get("/api/v1/accounts/PF30001/balance").with(customer(ALICE)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.balance").value(12.5))
                 .andExpect(jsonPath("$.currency").value("INR"))
@@ -111,15 +114,15 @@ class AccountApiTests {
 
     @Test
     void unknownAccountIsNotFound() throws Exception {
-        mockMvc.perform(get("/api/v1/accounts/NOPE1/balance"))
+        mockMvc.perform(get("/api/v1/accounts/NOPE1/balance").with(customer(ALICE)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ACCOUNT_NOT_FOUND"));
     }
 
     @Test
     void closingRequiresAZeroBalanceAndIsTerminal() throws Exception {
-        accountRepository.save(new Account("PF30001", new BigDecimal("1"), "INR"));
-        accountRepository.save(new Account("PF30002", BigDecimal.ZERO, "INR"));
+        accountRepository.save(new Account(ALICE, "PF30001", new BigDecimal("1"), "INR"));
+        accountRepository.save(new Account(ALICE, "PF30002", BigDecimal.ZERO, "INR"));
 
         changeStatus("PF30001", "CLOSED")
                 .andExpect(status().isUnprocessableContent())
@@ -134,7 +137,7 @@ class AccountApiTests {
 
     @Test
     void rejectsUnknownStatusValues() throws Exception {
-        accountRepository.save(new Account("PF30001", BigDecimal.ZERO, "INR"));
+        accountRepository.save(new Account(ALICE, "PF30001", BigDecimal.ZERO, "INR"));
         changeStatus("PF30001", "DELETED")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
@@ -142,6 +145,7 @@ class AccountApiTests {
 
     private ResultActions create(String body) throws Exception {
         return mockMvc.perform(post("/api/v1/accounts")
+                .with(customer(ALICE))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
     }
@@ -149,6 +153,7 @@ class AccountApiTests {
     private ResultActions changeStatus(String accountNumber, String status)
             throws Exception {
         return mockMvc.perform(patch("/api/v1/accounts/" + accountNumber + "/status")
+                .with(admin())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"status\":\"" + status + "\"}"));
     }

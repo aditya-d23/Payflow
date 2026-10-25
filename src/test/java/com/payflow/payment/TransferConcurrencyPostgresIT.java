@@ -6,7 +6,9 @@ import com.payflow.payment.entity.Account;
 import com.payflow.payment.exception.InsufficientBalanceException;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.service.TransferService;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.support.PostgresIntegrationTest;
+import com.payflow.payment.support.TestJwt;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.PessimisticLockingFailureException;
@@ -268,12 +270,13 @@ class TransferConcurrencyPostgresIT extends PostgresIntegrationTest {
     }
 
     private void account(String number, String balance) {
-        accountRepository.save(new Account(number, new BigDecimal(balance), "INR"));
+        accountRepository.save(new Account(TestJwt.ALICE, number, new BigDecimal(balance), "INR"));
     }
 
     private TransferResponse transfer(String from, String to, String amount, String key) {
         return transferService.transfer(
-                new TransferRequest(from, to, new BigDecimal(amount), "INR"), key)
+                new TransferRequest(from, to, new BigDecimal(amount), "INR"), key,
+                Caller.customer(TestJwt.ALICE))
                 .transfer();
     }
 

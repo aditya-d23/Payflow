@@ -9,7 +9,9 @@ import com.payflow.payment.exception.InsufficientBalanceException;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.repository.PaymentTransactionRepository;
 import com.payflow.payment.service.TransferService;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.support.H2Tables;
+import com.payflow.payment.support.TestJwt;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,7 +78,7 @@ class TransferServiceIntegrationTests {
         assertBalances("PF10001", "10.0000");
         assertBalances("PF10002", "0.0000");
         assertThat(transactionRepository.count()).isZero();
-        assertThat(transactionRepository.findByIdempotencyKey("insufficient-key"))
+        assertThat(transactionRepository.findByIdempotencyKey(TestJwt.ALICE, "insufficient-key"))
                 .isEmpty();
     }
 
@@ -85,7 +87,7 @@ class TransferServiceIntegrationTests {
         createAccount("PF10001", "100.0000");
         createAccount("PF10002", "25.0000");
 
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestJwt.customer(TestJwt.ALICE))
                         .header("Idempotency-Key", "first-transfer-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -102,7 +104,7 @@ class TransferServiceIntegrationTests {
                         .doesNotExist());
 
         PaymentTransaction transaction = transactionRepository
-                .findByIdempotencyKey("first-transfer-key")
+                .findByIdempotencyKey(TestJwt.ALICE, "first-transfer-key")
                 .orElseThrow();
 
         assertBalances("PF10001", "60.0000");
@@ -123,7 +125,7 @@ class TransferServiceIntegrationTests {
                 "PF10001", "PF10002", "40.0000", "retry-key"
         );
 
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestJwt.customer(TestJwt.ALICE))
                         .header("Idempotency-Key", "retry-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -150,7 +152,7 @@ class TransferServiceIntegrationTests {
         createAccount("PF10002", "0.0000");
         transfer("PF10001", "PF10002", "40.0000", "conflict-key");
 
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestJwt.customer(TestJwt.ALICE))
                         .header("Idempotency-Key", "conflict-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -170,7 +172,7 @@ class TransferServiceIntegrationTests {
 
     @Test
     void rejectsInvalidAndNullRequestFieldsWithBadRequest() throws Exception {
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestJwt.customer(TestJwt.ALICE))
                         .header("Idempotency-Key", "invalid-request-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -183,7 +185,7 @@ class TransferServiceIntegrationTests {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        mockMvc.perform(post("/api/v1/transfers")
+        mockMvc.perform(post("/api/v1/transfers").with(TestJwt.customer(TestJwt.ALICE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -210,7 +212,8 @@ class TransferServiceIntegrationTests {
                         new BigDecimal("40.0000"),
                         "inr"
                 ),
-                "normalized-currency-key"
+                "normalized-currency-key",
+                Caller.customer(TestJwt.ALICE)
         ).transfer();
         TransferResponse retry = transfer(
                 "PF10001", "PF10002", "40.0000",
@@ -247,7 +250,7 @@ class TransferServiceIntegrationTests {
         assertBalances("PF10001", "100.0000");
         assertBalances("PF10002", "0.0000");
         assertThat(transactionRepository.count()).isZero();
-        assertThat(transactionRepository.findByIdempotencyKey("rollback-key"))
+        assertThat(transactionRepository.findByIdempotencyKey(TestJwt.ALICE, "rollback-key"))
                 .isEmpty();
     }
 
@@ -346,6 +349,7 @@ class TransferServiceIntegrationTests {
 
     private Account createAccount(String accountNumber, String balance) {
         return accountRepository.save(new Account(
+                TestJwt.ALICE,
                 accountNumber,
                 new BigDecimal(balance),
                 "INR"
@@ -363,7 +367,7 @@ class TransferServiceIntegrationTests {
                 toAccountNumber,
                 new BigDecimal(amount),
                 "INR"
-        ), idempotencyKey).transfer();
+        ), idempotencyKey, Caller.customer(TestJwt.ALICE)).transfer();
     }
 
     private void assertBalances(String accountNumber, String expectedBalance) {

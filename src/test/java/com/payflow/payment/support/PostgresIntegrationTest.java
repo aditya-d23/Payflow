@@ -14,7 +14,7 @@ import java.util.List;
  * and {@code ddl-auto=validate}. One container is shared by every subclass in
  * the JVM so the Spring context cache stays effective.
  */
-@SpringBootTest
+@SpringBootTest(properties = "payflow.security.jwt.hmac-secret=" + TestJwt.TEST_SECRET)
 public abstract class PostgresIntegrationTest {
 
     @ServiceConnection

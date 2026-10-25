@@ -39,10 +39,23 @@ public class Account {
     @Column(name = "account_type", nullable = false, length = 20)
     private AccountType type;
 
+    /** JWT subject of the customer who owns the account; null for system accounts. */
+    @Column(name = "owner_id", length = 255)
+    private String ownerId;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
     public Account(String accountNumber, BigDecimal balance, String currency) {
+        this(null, accountNumber, balance, currency);
+    }
+
+    public Account(
+            String ownerId,
+            String accountNumber,
+            BigDecimal balance,
+            String currency) {
+        this.ownerId = ownerId;
         this.accountNumber = accountNumber;
         this.balance = balance;
         this.currency = currency;
@@ -63,6 +76,14 @@ public class Account {
 
     public boolean isSystem() {
         return type == AccountType.SYSTEM;
+    }
+
+    public void assignOwner(String ownerId) {
+        if (isSystem()) {
+            throw new TransferRejectedException(
+                    ErrorCode.INVALID_ACCOUNT_STATE, "System accounts cannot have an owner");
+        }
+        this.ownerId = ownerId;
     }
 
     public void ensureActive() {

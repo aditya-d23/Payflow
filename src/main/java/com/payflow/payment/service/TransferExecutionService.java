@@ -61,6 +61,11 @@ public class TransferExecutionService {
         Account receiver = toNumber.equals(firstNumber) ? first : second;
 
         requireParticipantTypes(command.type(), sender, receiver);
+        // Customers may only spend from their own accounts. Checked under the
+        // row lock; a non-owned source is reported as not found.
+        if (command.type() == TransferType.TRANSFER && !command.caller().owns(sender)) {
+            throw notFound(sender.getAccountNumber());
+        }
         sender.ensureActive();
         receiver.ensureActive();
 
@@ -78,6 +83,7 @@ public class TransferExecutionService {
                 receiver,
                 command.amount(),
                 command.currency(),
+                command.caller().subject(),
                 command.idempotencyKey(),
                 command.requestFingerprint()
         );

@@ -29,9 +29,11 @@ public interface PaymentTransactionRepository
             FROM PaymentTransaction t
             JOIN FETCH t.fromAccount
             JOIN FETCH t.toAccount
-            WHERE t.idempotencyKey = :idempotencyKey
+            WHERE t.idempotencyScope = :scope
+              AND t.idempotencyKey = :idempotencyKey
             """)
     Optional<PaymentTransaction> findByIdempotencyKey(
+            @Param("scope") String scope,
             @Param("idempotencyKey") String idempotencyKey
     );
 
@@ -39,6 +41,8 @@ public interface PaymentTransactionRepository
             value = """
             SELECT t
             FROM PaymentTransaction t
+            JOIN FETCH t.fromAccount
+            JOIN FETCH t.toAccount
             WHERE t.fromAccount.id = :accountId
                OR t.toAccount.id = :accountId
             """,

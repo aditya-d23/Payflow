@@ -4,6 +4,7 @@ package com.payflow.payment.config;
 import com.payflow.payment.dto.CashMovementRequest;
 import com.payflow.payment.dto.CreateAccountRequest;
 import com.payflow.payment.repository.AccountRepository;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.service.AccountService;
 import com.payflow.payment.service.TransferService;
 import org.springframework.boot.ApplicationArguments;
@@ -22,6 +23,8 @@ import java.math.BigDecimal;
 public class DevDataInitializer implements ApplicationRunner {
 
     static final String ACCOUNT_NUMBER = "PF10001";
+    static final String OWNER = "dev-user";
+    private static final Caller SEEDER = Caller.admin("dev-seeder");
 
     private final AccountRepository accountRepository;
     private final AccountService accountService;
@@ -41,9 +44,10 @@ public class DevDataInitializer implements ApplicationRunner {
         if (accountRepository.existsByAccountNumber(ACCOUNT_NUMBER)) {
             return;
         }
-        accountService.createAccount(new CreateAccountRequest(ACCOUNT_NUMBER, "INR"));
+        accountService.createAccount(
+                new CreateAccountRequest(ACCOUNT_NUMBER, "INR", OWNER), SEEDER);
         transferService.deposit(
                 new CashMovementRequest(ACCOUNT_NUMBER, new BigDecimal("1000.00"), "INR"),
-                "dev-seed-" + ACCOUNT_NUMBER);
+                "dev-seed-" + ACCOUNT_NUMBER, SEEDER);
     }
 }

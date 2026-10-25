@@ -3,6 +3,9 @@ package com.payflow.payment;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.service.ReconciliationService;
 import com.payflow.payment.support.H2Tables;
+import static com.payflow.payment.support.TestJwt.ALICE;
+import static com.payflow.payment.support.TestJwt.admin;
+import static com.payflow.payment.support.TestJwt.customer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -55,7 +58,7 @@ class FundingApiTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.type").value("WITHDRAWAL"));
 
-        mockMvc.perform(get("/api/v1/accounts/PF60001/balance"))
+        mockMvc.perform(get("/api/v1/accounts/PF60001/balance").with(customer(ALICE)))
                 .andExpect(jsonPath("$.balance").value(70.0));
         assertThat(accountRepository.findByAccountNumber("SYS-FUNDING-INR")
                 .orElseThrow().getBalance()).isEqualByComparingTo("-70");
@@ -70,7 +73,7 @@ class FundingApiTests {
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Idempotent-Replayed", "true"));
 
-        mockMvc.perform(get("/api/v1/accounts/PF60001/balance"))
+        mockMvc.perform(get("/api/v1/accounts/PF60001/balance").with(customer(ALICE)))
                 .andExpect(jsonPath("$.balance").value(100.0));
     }
 
@@ -85,6 +88,7 @@ class FundingApiTests {
     @Test
     void reservedAccountNumbersCannotBeCreated() throws Exception {
         mockMvc.perform(post("/api/v1/accounts")
+                        .with(customer(ALICE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accountNumber\":\"SYS-FUNDING-USD\",\"currency\":\"USD\"}"))
                 .andExpect(status().isBadRequest())
@@ -102,6 +106,7 @@ class FundingApiTests {
 
     private void open(String accountNumber) throws Exception {
         mockMvc.perform(post("/api/v1/accounts")
+                        .with(customer(ALICE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accountNumber\":\"" + accountNumber + "\",\"currency\":\"INR\"}"))
                 .andExpect(status().isCreated());
@@ -110,6 +115,7 @@ class FundingApiTests {
     private ResultActions move(String path, String account, String amount, String key)
             throws Exception {
         return mockMvc.perform(post(path)
+                .with(admin())
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""

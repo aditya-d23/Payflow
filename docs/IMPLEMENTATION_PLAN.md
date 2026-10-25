@@ -68,11 +68,11 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] `TransferResponse` DTO (D1), `GET /api/v1/transfers/{reference}`, `completed_at` (V5)
 - [x] Lock timeout of 3s, mapped to 503 `LOCK_TIMEOUT` + `Retry-After` (D10); the key is not consumed, so retries are safe
 - [x] PostgreSQL concurrency tests (`TransferConcurrencyPostgresIT`): 25-way overdraw race, 40 opposite-direction transfers (no deadlock), 10 concurrent duplicates, lock timeout, trigger-forced failures on credit and on the transaction record, 60 mixed transfers conserving total
-- [ ] History query N+1 on account associations (fix with fetch join in the security pass)
+- [x] History query N+1 fixed with fetch joins
 
 ### Phase 4: Idempotency
 - [x] Key format validation (1–255 visible ASCII), `Idempotent-Replayed` header
-- [ ] Caller-scoped uniqueness (D11), done with Phase 6 since it needs an authenticated identity
+- [x] Caller-scoped uniqueness (D11): `UNIQUE (idempotency_scope, idempotency_key)` in V7 (`SecurityApiTests.idempotencyKeysAreScopedToTheCaller`)
 - [x] Fingerprint unit tests (`TransferFingerprintTests`)
 - [x] PostgreSQL: concurrent duplicates (`TransferConcurrencyPostgresIT`), same key with a different payload racing on disjoint accounts, replay after an application restart, rejected attempts do not consume the key (`IdempotencyPostgresIT`)
 - [x] "Unknown outcome" is not observable server-side: the key claim and the money movement commit atomically, so a key is either absent (retry executes) or bound to a completed transfer (retry replays). Documented in ARCHITECTURE.md.
@@ -86,8 +86,10 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] Dev seeding now funds PF10001 through a deposit, so the ledger stays reconciled
 
 ### Phase 6: Security
-- [ ] JWT resource server (issuer, audience, expiry, signature)
-- [ ] Ownership on accounts, transfers, and history; admin role for funding
+- [x] JWT resource server validating signature, exp/nbf, iss, aud, sub. JWKS in prod, HS256 for local dev, no default keys (`JwtValidationTests`)
+- [x] Ownership on accounts, transfers, and history (404 for non-owned); `payflow.admin` for funding, status, owner assignment, reconciliation, actuator (`SecurityApiTests`)
+- [x] JSON 401/403 bodies with correlation ID and `WWW-Authenticate: Bearer`
+- [x] `scripts/dev-token.sh` for local tokens; SECURITY.md
 
 ### Phase 7: Outbox and events
 - [ ] Outbox table written in the transfer transaction

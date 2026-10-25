@@ -11,7 +11,12 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "payment_transactions")
+@Table(
+        name = "payment_transactions",
+        // Mirrors V7; also gives the H2 test schema the same guarantee.
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_payment_transactions_idempotency",
+                columnNames = {"idempotency_scope", "idempotency_key"}))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PaymentTransaction {
@@ -23,7 +28,11 @@ public class PaymentTransaction {
     @Column(name = "transaction_reference", nullable = false, unique = true)
     private UUID transactionReference;
 
-    @Column(name = "idempotency_key", unique = true, length = 255)
+    /** Namespace of the idempotency key: the subject of the caller who sent it. */
+    @Column(name = "idempotency_scope", length = 255)
+    private String idempotencyScope;
+
+    @Column(name = "idempotency_key", length = 255)
     private String idempotencyKey;
 
     @Column(name = "idempotency_request_fingerprint", length = 64)
@@ -63,11 +72,13 @@ public class PaymentTransaction {
             Account toAccount,
             BigDecimal amount,
             String currency,
+            String idempotencyScope,
             String idempotencyKey,
             String idempotencyRequestFingerprint
     ) {
         this.type = type;
         this.transactionReference = UUID.randomUUID();
+        this.idempotencyScope = idempotencyScope;
         this.idempotencyKey = idempotencyKey;
         this.idempotencyRequestFingerprint = idempotencyRequestFingerprint;
         this.fromAccount = fromAccount;

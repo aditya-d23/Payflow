@@ -5,6 +5,8 @@ import com.payflow.payment.entity.AccountStatus;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.repository.PaymentTransactionRepository;
 import com.payflow.payment.support.H2Tables;
+import static com.payflow.payment.support.TestJwt.ALICE;
+import static com.payflow.payment.support.TestJwt.customer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,7 +70,7 @@ class TransferApiTests {
                 .andExpect(jsonPath("$.id").doesNotExist())
                 .andReturn().getResponse().getHeader("Location");
 
-        mockMvc.perform(get(location))
+        mockMvc.perform(get(location).with(customer(ALICE)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fromAccountNumber").value("PF20001"))
                 .andExpect(jsonPath("$.toAccountNumber").value("PF20002"));
@@ -186,17 +188,18 @@ class TransferApiTests {
     @Test
     void malformedBodyAndUnknownTransferUseTheStandardErrorShape() throws Exception {
         mockMvc.perform(post("/api/v1/transfers")
+                        .with(customer(ALICE))
                         .header("Idempotency-Key", "malformed-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{not json"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
-        mockMvc.perform(get("/api/v1/transfers/not-a-uuid"))
+        mockMvc.perform(get("/api/v1/transfers/not-a-uuid").with(customer(ALICE)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"));
 
-        mockMvc.perform(get("/api/v1/transfers/00000000-0000-0000-0000-000000000000"))
+        mockMvc.perform(get("/api/v1/transfers/00000000-0000-0000-0000-000000000000").with(customer(ALICE)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TRANSFER_NOT_FOUND"));
     }
@@ -204,6 +207,7 @@ class TransferApiTests {
     @Test
     void suppliedCorrelationIdIsEchoed() throws Exception {
         mockMvc.perform(get("/api/v1/transfers/00000000-0000-0000-0000-000000000000")
+                        .with(customer(ALICE))
                         .header("X-Request-Id", "trace-123"))
                 .andExpect(header().string("X-Request-Id", "trace-123"))
                 .andExpect(jsonPath("$.correlationId").value("trace-123"));
@@ -211,7 +215,7 @@ class TransferApiTests {
 
     private Account account(String number, String balance, String currency) {
         return accountRepository.save(
-                new Account(number, new BigDecimal(balance), currency));
+                new Account(ALICE, number, new BigDecimal(balance), currency));
     }
 
     private void withStatus(Account account, AccountStatus status) {
@@ -223,6 +227,7 @@ class TransferApiTests {
             String from, String to, String amount, String currency, String key)
             throws Exception {
         return mockMvc.perform(post("/api/v1/transfers")
+                .with(customer(ALICE))
                 .header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""

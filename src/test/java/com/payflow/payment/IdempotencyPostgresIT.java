@@ -7,7 +7,9 @@ import com.payflow.payment.exception.InsufficientBalanceException;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.service.TransferResult;
 import com.payflow.payment.service.TransferService;
+import com.payflow.payment.security.Caller;
 import com.payflow.payment.support.PostgresIntegrationTest;
+import com.payflow.payment.support.TestJwt;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.WebApplicationType;
@@ -24,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class IdempotencyPostgresIT extends PostgresIntegrationTest {
 
+    private static final Caller ALICE = Caller.customer(TestJwt.ALICE);
+
     @Autowired
     private AccountRepository accountRepository;
 
@@ -38,13 +42,13 @@ class IdempotencyPostgresIT extends PostgresIntegrationTest {
         TransferResult original;
         try (ConfigurableApplicationContext first = startApplication()) {
             original = first.getBean(TransferService.class)
-                    .transfer(request("PG40001", "PG40002", "30.00"), "restart-key");
+                    .transfer(request("PG40001", "PG40002", "30.00"), "restart-key", ALICE);
         }
 
         TransferResult replay;
         try (ConfigurableApplicationContext second = startApplication()) {
             replay = second.getBean(TransferService.class)
-                    .transfer(request("PG40001", "PG40002", "30"), "restart-key");
+                    .transfer(request("PG40001", "PG40002", "30"), "restart-key", ALICE);
         }
 
         assertThat(original.replayed()).isFalse();
@@ -95,13 +99,13 @@ class IdempotencyPostgresIT extends PostgresIntegrationTest {
         account("PG40002", "0.00");
 
         assertThatThrownBy(() -> transferService.transfer(
-                request("PG40001", "PG40002", "10.00"), "nsf-then-ok"))
+                request("PG40001", "PG40002", "10.00"), "nsf-then-ok", ALICE))
                 .isInstanceOf(InsufficientBalanceException.class);
 
         jdbcTemplate.update(
                 "UPDATE accounts SET balance = 50 WHERE account_number = 'PG40001'");
         TransferResult retry = transferService.transfer(
-                request("PG40001", "PG40002", "10.00"), "nsf-then-ok");
+                request("PG40001", "PG40002", "10.00"), "nsf-then-ok", ALICE);
 
         assertThat(retry.replayed()).isFalse();
         assertBalance("PG40001", "40.00");
@@ -110,7 +114,7 @@ class IdempotencyPostgresIT extends PostgresIntegrationTest {
     private Object attempt(CountDownLatch start, TransferRequest request, String key) {
         try {
             start.await();
-            return transferService.transfer(request, key);
+            return transferService.transfer(request, key, ALICE);
         } catch (Exception exception) {
             return exception;
         }
@@ -118,17 +122,19 @@ class IdempotencyPostgresIT extends PostgresIntegrationTest {
 
     private static ConfigurableApplicationContext startApplication() {
         return new SpringApplicationBuilder(PaymentServiceApplication.class)
-                .web(WebApplicationType.NONE)
-                .properties(
-                        "spring.datasource.url=" + POSTGRES.getJdbcUrl(),
-                        "spring.datasource.username=" + POSTGRES.getUsername(),
-                        "spring.datasource.password=" + POSTGRES.getPassword(),
-                        "spring.main.banner-mode=off")
-                .run();
+                .web(WebApplicationType.SERVLET)
+                // Command-line arguments outrank application.properties.
+                .run(
+                        "--server.port=0",
+                        "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
+                        "--spring.datasource.username=" + POSTGRES.getUsername(),
+                        "--spring.datasource.password=" + POSTGRES.getPassword(),
+                        "--spring.main.banner-mode=off",
+                        "--payflow.security.jwt.hmac-secret=" + TestJwt.TEST_SECRET);
     }
 
     private void account(String number, String balance) {
-        accountRepository.save(new Account(number, new BigDecimal(balance), "INR"));
+        accountRepository.save(new Account(TestJwt.ALICE, number, new BigDecimal(balance), "INR"));
     }
 
     private static TransferRequest request(String from, String to, String amount) {
