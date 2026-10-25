@@ -92,9 +92,10 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] `scripts/dev-token.sh` for local tokens; SECURITY.md
 
 ### Phase 7: Outbox and events
-- [ ] Outbox table written in the transfer transaction
-- [ ] Poller with `FOR UPDATE SKIP LOCKED`, retries, dead state
-- [ ] Kafka publisher and idempotent consumer
+- [x] Outbox table (V8) written in the transfer and account-creation transactions; rolled-back transfers emit nothing (`OutboxPostgresIT`)
+- [x] Relay: `FOR UPDATE SKIP LOCKED` claim with lease, publish outside transactions, capped exponential backoff, DEAD after N attempts, expired-lease recovery, 4 concurrent relays with no duplicate claims (`OutboxPostgresIT`, `OutboxPropertiesTests`)
+- [x] Kafka publisher (acks=all, idempotent producer, keyed by aggregate, event headers) and deduplicating consumer with `.DLT` dead-lettering. End to end with Testcontainers Kafka 4.2 (`KafkaOutboxPostgresIT`). Off by default (`PAYFLOW_KAFKA_ENABLED`); without Kafka, transfers are unaffected and the relay logs.
+- [x] No TransferFailed event: rejected transfers roll back and have no durable business state
 
 ### Phase 8: Redis
 - [ ] Evaluate and document
