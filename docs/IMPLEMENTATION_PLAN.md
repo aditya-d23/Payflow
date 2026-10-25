@@ -71,8 +71,11 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [ ] History query N+1 on account associations (fix with fetch join in the security pass)
 
 ### Phase 4: Idempotency
-- [ ] Key format validation, replay header, caller-scoped uniqueness (D11)
-- [ ] PostgreSQL concurrent duplicate test, restart persistence test
+- [x] Key format validation (1–255 visible ASCII), `Idempotent-Replayed` header
+- [ ] Caller-scoped uniqueness (D11), done with Phase 6 since it needs an authenticated identity
+- [x] Fingerprint unit tests (`TransferFingerprintTests`)
+- [x] PostgreSQL: concurrent duplicates (`TransferConcurrencyPostgresIT`), same key with a different payload racing on disjoint accounts, replay after an application restart, rejected attempts do not consume the key (`IdempotencyPostgresIT`)
+- [x] "Unknown outcome" is not observable server-side: the key claim and the money movement commit atomically, so a key is either absent (retry executes) or bound to a completed transfer (retry replays). Documented in ARCHITECTURE.md.
 
 ### Phase 5: Ledger
 - [ ] ledger_transactions and ledger_entries, immutable, balanced per transaction
