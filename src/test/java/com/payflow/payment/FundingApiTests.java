@@ -96,6 +96,19 @@ class FundingApiTests {
     }
 
     @Test
+    void fundingAccountStatusCannotBeChanged() throws Exception {
+        open("PF60001");
+        move("/api/v1/deposits", "PF60001", "1", "create-funding").andExpect(status().isCreated());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .patch("/api/v1/accounts/SYS-FUNDING-INR/status").with(admin())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"FROZEN\"}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INVALID_ACCOUNT_STATE"));
+        move("/api/v1/deposits", "PF60001", "1", "still-works").andExpect(status().isCreated());
+    }
+
+    @Test
     void depositingIntoTheFundingAccountItselfIsRejected() throws Exception {
         open("PF60001");
         move("/api/v1/deposits", "PF60001", "1", "create-funding").andExpect(status().isCreated());

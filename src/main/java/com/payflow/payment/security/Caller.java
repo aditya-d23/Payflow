@@ -16,6 +16,12 @@ public record Caller(String subject, boolean admin) {
     public static final String ADMIN_SCOPE = "payflow.admin";
     public static final String ADMIN_AUTHORITY = "SCOPE_" + ADMIN_SCOPE;
 
+    /**
+     * Subjects in this namespace are internal (for example the idempotency
+     * scope of pre-authentication transfers) and are rejected in tokens.
+     */
+    public static final String RESERVED_SUBJECT_PREFIX = "payflow:";
+
     public Caller {
         Objects.requireNonNull(subject, "subject");
         if (subject.isBlank()) {

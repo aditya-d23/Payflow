@@ -119,7 +119,7 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 
 | Check | Result |
 | --- | --- |
-| `./mvnw -B clean verify` | BUILD SUCCESS: 76 unit/H2 + 30 PostgreSQL/Kafka integration tests, 0 failures |
+| `./mvnw -B clean verify` | BUILD SUCCESS: 81 unit/H2 + 31 PostgreSQL/Kafka integration tests, 0 failures (after the review fixes) |
 | GitHub Actions | `CI` run on `1165bf4`: Build and test ✅, Docker image ✅ |
 | Migrations on isolated DB | V1–V8 on Testcontainers PostgreSQL and on the Compose stack; V2→V8 upgrade with data reconciles |
 | Docker | Image builds; Compose stack healthy; HTTP smoke test and README quick start pass on a fresh stack |
@@ -136,6 +136,23 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - The original local `payflow` database (container `payflow-postgres`) was
   only read, never migrated or modified. It will move from V2 to V8 the next
   time the app starts against it (see OPERATIONS.md, "Upgrading").
+
+### Independent code review (2026-10-25)
+
+A `/code-review high` pass over `5e1a2d7..HEAD` found 10 issues; all 10 are fixed:
+
+| Issue | Fix |
+| --- | --- |
+| Kafka batch deadline started after the sends, so a down broker could stall a batch far past the lease | One deadline covers sends and acks |
+| A relay with an expired lease could overwrite a newer claim | Failure updates are fenced on `(status, attempts)` (`OutboxPostgresIT`) |
+| `batch-size=0` looped forever | Startup validation (`OutboxPropertiesTests`) |
+| Funding accounts created before request validation | Created only after validation |
+| Blank `ownerId` accepted | 400 `VALIDATION_FAILED` |
+| Pre-auth idempotency scope `legacy` was a usable JWT subject | V9 moves it to the reserved `payflow:` namespace; such subjects are rejected (`JwtValidationTests`, `FlywayMigrationPostgresIT`) |
+| Funding accounts could be frozen, halting a currency | System account status is immutable (`FundingApiTests`) |
+| Dev seed never retried after a crash between create and fund | Retries the idempotent deposit while the balance is zero (`DevDataInitializerTests`) |
+| k6 `rps` wrong for durations like `2m` | Proper duration parsing; the published 30s results are unaffected |
+| Duplicated `SYS-` prefix rule in the consumer | Uses `SystemAccounts.isReserved` |
 
 ### Remaining, by choice or out of scope
 

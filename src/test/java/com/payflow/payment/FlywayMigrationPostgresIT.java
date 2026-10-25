@@ -49,8 +49,18 @@ class FlywayMigrationPostgresIT extends PostgresIntegrationTest {
                      amount, currency, status)
                 VALUES (gen_random_uuid(), 1, 2, 100.0000, 'INR', 'COMPLETED')
                 """);
+        // A transfer made with an idempotency key before authentication (V3-V6).
+        flyway(upgradeDb).target("6").load().migrate();
+        upgrade.update("""
+                UPDATE payment_transactions
+                SET idempotency_key = 'pre-auth-key', idempotency_request_fingerprint = 'f'
+                """);
 
         flyway(upgradeDb).load().migrate();
+
+        assertThat(upgrade.queryForObject(
+                "SELECT idempotency_scope FROM payment_transactions", String.class))
+                .isEqualTo("payflow:legacy");
 
         assertThat(upgrade.queryForObject(
                 "SELECT balance FROM accounts WHERE account_number = 'PF10001'",

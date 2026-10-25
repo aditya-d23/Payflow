@@ -136,7 +136,8 @@ public class SecurityConfig implements WebMvcConfigurer {
                 JwtClaimNames.AUD,
                 aud -> aud != null && aud.contains(properties.audience()));
         OAuth2TokenValidator<Jwt> subject = new JwtClaimValidator<String>(
-                JwtClaimNames.SUB, StringUtils::hasText);
+                JwtClaimNames.SUB, sub -> StringUtils.hasText(sub)
+                        && !sub.startsWith(Caller.RESERVED_SUBJECT_PREFIX));
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 JwtValidators.createDefaultWithIssuer(properties.issuer()),
                 audience,

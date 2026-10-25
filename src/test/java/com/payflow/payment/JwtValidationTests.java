@@ -77,6 +77,13 @@ class JwtValidationTests {
     }
 
     @Test
+    void rejectsSubjectsInTheReservedNamespace() throws Exception {
+        // Such a subject could otherwise share pre-authentication idempotency keys.
+        call(sign(TestJwt.TEST_SECRET, claims -> claims.subject("payflow:legacy")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void rejectsAnUnsignedToken() throws Exception {
         Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();
         String header = b64.encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8));

@@ -121,8 +121,8 @@ depend on it.
 ## Tests
 
 ```bash
-./mvnw test      # 76 fast tests (unit + H2), no Docker needed
-./mvnw verify    # + 30 PostgreSQL/Kafka integration tests via Testcontainers
+./mvnw test      # 81 fast tests (unit + H2), no Docker needed
+./mvnw verify    # + 31 PostgreSQL/Kafka integration tests via Testcontainers
 ```
 
 See [docs/TESTING.md](docs/TESTING.md) for what each suite proves.

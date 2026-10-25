@@ -1,6 +1,6 @@
 # PayFlow Testing
 
-106 automated tests: 76 in the fast suite and 30 PostgreSQL/Kafka
+112 automated tests: 81 in the fast suite and 31 PostgreSQL/Kafka
 integration tests. All pass on `./mvnw verify` as of 2026-10-25.
 
 ## Commands
