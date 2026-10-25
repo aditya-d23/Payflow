@@ -8,6 +8,8 @@ import com.payflow.payment.entity.Account;
 import com.payflow.payment.entity.AccountStatus;
 import com.payflow.payment.exception.AccountAlreadyExistsException;
 import com.payflow.payment.exception.AccountNotFoundException;
+import com.payflow.payment.exception.ErrorCode;
+import com.payflow.payment.exception.InvalidRequestException;
 import com.payflow.payment.repository.AccountRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -33,6 +35,12 @@ public class AccountService {
     public AccountResponse createAccount(CreateAccountRequest request) {
         String accountNumber = request.accountNumber().trim();
         String currency = currencyPolicy.normalizeCurrency(request.currency());
+        if (SystemAccounts.isReserved(accountNumber)) {
+            throw new InvalidRequestException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "Account numbers starting with " + SystemAccounts.RESERVED_PREFIX
+                            + " are reserved");
+        }
 
         // Fast path for the common case; the unique constraint below is what
         // actually guarantees uniqueness under concurrent creation.

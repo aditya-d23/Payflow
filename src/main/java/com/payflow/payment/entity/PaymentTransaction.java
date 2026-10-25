@@ -45,6 +45,10 @@ public class PaymentTransaction {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    private TransferType type;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private TransferStatus status;
 
     @Column(name = "created_at", nullable = false)
@@ -54,6 +58,7 @@ public class PaymentTransaction {
     private OffsetDateTime completedAt;
 
     public PaymentTransaction(
+            TransferType type,
             Account fromAccount,
             Account toAccount,
             BigDecimal amount,
@@ -61,6 +66,7 @@ public class PaymentTransaction {
             String idempotencyKey,
             String idempotencyRequestFingerprint
     ) {
+        this.type = type;
         this.transactionReference = UUID.randomUUID();
         this.idempotencyKey = idempotencyKey;
         this.idempotencyRequestFingerprint = idempotencyRequestFingerprint;

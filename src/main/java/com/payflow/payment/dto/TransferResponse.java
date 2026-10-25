@@ -12,6 +12,7 @@ import java.util.UUID;
  */
 public record TransferResponse(
         UUID transactionReference,
+        String type,
         String status,
         String fromAccountNumber,
         String toAccountNumber,
@@ -23,6 +24,7 @@ public record TransferResponse(
     public static TransferResponse from(PaymentTransaction transaction) {
         return new TransferResponse(
                 transaction.getTransactionReference(),
+                transaction.getType().name(),
                 transaction.getStatus().name(),
                 transaction.getFromAccount().getAccountNumber(),
                 transaction.getToAccount().getAccountNumber(),

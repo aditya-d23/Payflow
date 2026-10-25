@@ -35,6 +35,10 @@ public class Account {
     @Column(nullable = false, length = 20)
     private AccountStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "account_type", nullable = false, length = 20)
+    private AccountType type;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -43,7 +47,22 @@ public class Account {
         this.balance = balance;
         this.currency = currency;
         this.status = AccountStatus.ACTIVE;
+        this.type = AccountType.CUSTOMER;
         this.createdAt = OffsetDateTime.now();
+    }
+
+    /**
+     * The per-currency counterparty for money entering or leaving PayFlow.
+     * Its balance may go negative; customer balances may not.
+     */
+    public static Account system(String accountNumber, String currency) {
+        Account account = new Account(accountNumber, BigDecimal.ZERO, currency);
+        account.type = AccountType.SYSTEM;
+        return account;
+    }
+
+    public boolean isSystem() {
+        return type == AccountType.SYSTEM;
     }
 
     public void ensureActive() {
@@ -77,7 +96,7 @@ public class Account {
                     "Debit amount must be positive"
             );
         }
-        if (balance.compareTo(amount) < 0) {
+        if (!isSystem() && balance.compareTo(amount) < 0) {
             throw new InsufficientBalanceException(
                     "Insufficient account balance"
             );

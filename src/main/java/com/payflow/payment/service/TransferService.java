@@ -1,9 +1,11 @@
 
 package com.payflow.payment.service;
 
+import com.payflow.payment.dto.CashMovementRequest;
 import com.payflow.payment.dto.TransferRequest;
 import com.payflow.payment.dto.TransferResponse;
 import com.payflow.payment.entity.PaymentTransaction;
+import com.payflow.payment.entity.TransferType;
 import com.payflow.payment.exception.ErrorCode;
 import com.payflow.payment.exception.IdempotencyKeyConflictException;
 import com.payflow.payment.exception.InvalidRequestException;
@@ -13,6 +15,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -36,23 +39,46 @@ public class TransferService {
     private final PaymentTransactionRepository transactionRepository;
     private final TransferExecutionService transferExecutionService;
     private final CurrencyPolicy currencyPolicy;
+    private final SystemAccounts systemAccounts;
 
     public TransferService(
             PaymentTransactionRepository transactionRepository,
             TransferExecutionService transferExecutionService,
-            CurrencyPolicy currencyPolicy
+            CurrencyPolicy currencyPolicy,
+            SystemAccounts systemAccounts
     ) {
         this.transactionRepository = transactionRepository;
         this.transferExecutionService = transferExecutionService;
         this.currencyPolicy = currencyPolicy;
+        this.systemAccounts = systemAccounts;
     }
 
     public TransferResult transfer(
             TransferRequest request,
             String idempotencyKey
     ) {
-        TransferCommand command = normalize(request, idempotencyKey);
+        return execute(normalize(TransferType.TRANSFER,
+                request.fromAccountNumber(), request.toAccountNumber(),
+                request.amount(), request.currency(), idempotencyKey));
+    }
 
+    /** Money entering PayFlow: credits the customer, debits the funding account. */
+    public TransferResult deposit(CashMovementRequest request, String idempotencyKey) {
+        String currency = currencyPolicy.normalizeCurrency(request.currency());
+        return execute(normalize(TransferType.DEPOSIT,
+                systemAccounts.ensureFundingAccount(currency), request.accountNumber(),
+                request.amount(), currency, idempotencyKey));
+    }
+
+    /** Money leaving PayFlow: debits the customer, credits the funding account. */
+    public TransferResult withdraw(CashMovementRequest request, String idempotencyKey) {
+        String currency = currencyPolicy.normalizeCurrency(request.currency());
+        return execute(normalize(TransferType.WITHDRAWAL,
+                request.accountNumber(), systemAccounts.ensureFundingAccount(currency),
+                request.amount(), currency, idempotencyKey));
+    }
+
+    private TransferResult execute(TransferCommand command) {
         Optional<TransferResult> replay = findReplay(command);
         if (replay.isPresent()) {
             return replay.get();
@@ -93,19 +119,28 @@ public class TransferService {
         return new TransferResult(TransferResponse.from(existing), true);
     }
 
-    private TransferCommand normalize(TransferRequest request, String idempotencyKey) {
+    private TransferCommand normalize(
+            TransferType type,
+            String fromAccountNumber,
+            String toAccountNumber,
+            BigDecimal requestedAmount,
+            String requestedCurrency,
+            String idempotencyKey) {
         String key = normalizeIdempotencyKey(idempotencyKey);
-        if (request.fromAccountNumber() == null || request.toAccountNumber() == null) {
+        if (fromAccountNumber == null || toAccountNumber == null) {
             throw new InvalidRequestException(
-                    ErrorCode.VALIDATION_FAILED, "Both account numbers are required");
+                    ErrorCode.VALIDATION_FAILED, "Account numbers are required");
         }
-        String currency = currencyPolicy.normalizeCurrency(request.currency());
-        String from = request.fromAccountNumber().trim();
-        String to = request.toAccountNumber().trim();
-        var amount = currencyPolicy.normalizeAmount(request.amount(), currency);
+        String currency = currencyPolicy.normalizeCurrency(requestedCurrency);
+        String from = fromAccountNumber.trim();
+        String to = toAccountNumber.trim();
+        BigDecimal amount = currencyPolicy.normalizeAmount(requestedAmount, currency);
 
+        // The type is implied by the accounts (deposits and withdrawals always
+        // involve a SYS- account, transfers never do), so it is not fingerprinted;
+        // this keeps fingerprints of pre-ledger transfers valid.
         return new TransferCommand(
-                from, to, amount, currency, key,
+                type, from, to, amount, currency, key,
                 fingerprint(from, to, amount.toPlainString(), currency)
         );
     }

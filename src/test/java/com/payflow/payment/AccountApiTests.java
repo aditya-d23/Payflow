@@ -2,12 +2,14 @@ package com.payflow.payment;
 
 import com.payflow.payment.entity.Account;
 import com.payflow.payment.repository.AccountRepository;
+import com.payflow.payment.support.H2Tables;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -30,11 +32,14 @@ class AccountApiTests {
     private MockMvc mockMvc;
 
     @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
     private AccountRepository accountRepository;
 
     @AfterEach
     void clearDatabase() {
-        accountRepository.deleteAll();
+        H2Tables.truncateAll(jdbcTemplate);
     }
 
     @Test

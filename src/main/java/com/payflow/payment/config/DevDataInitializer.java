@@ -1,45 +1,49 @@
 
 package com.payflow.payment.config;
 
-import com.payflow.payment.entity.Account;
+import com.payflow.payment.dto.CashMovementRequest;
+import com.payflow.payment.dto.CreateAccountRequest;
 import com.payflow.payment.repository.AccountRepository;
+import com.payflow.payment.service.AccountService;
+import com.payflow.payment.service.TransferService;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 
+/**
+ * Seeds a funded development account. Funding goes through a deposit so the
+ * ledger stays reconciled, and the fixed idempotency key makes restarts no-ops.
+ */
 @Component
 @Profile("dev")
 public class DevDataInitializer implements ApplicationRunner {
 
-    private final AccountRepository accountRepository;
+    static final String ACCOUNT_NUMBER = "PF10001";
 
-    public DevDataInitializer(AccountRepository accountRepository) {
+    private final AccountRepository accountRepository;
+    private final AccountService accountService;
+    private final TransferService transferService;
+
+    public DevDataInitializer(
+            AccountRepository accountRepository,
+            AccountService accountService,
+            TransferService transferService) {
         this.accountRepository = accountRepository;
+        this.accountService = accountService;
+        this.transferService = transferService;
     }
 
     @Override
-    @Transactional
     public void run(ApplicationArguments args) {
-        createDevelopmentAccountIfAbsent(
-                "PF10001",
-                new BigDecimal("1000.00")
-        );
-    }
-
-    private void createDevelopmentAccountIfAbsent(
-            String accountNumber,
-            BigDecimal initialBalance) {
-
-        if (!accountRepository.existsByAccountNumber(accountNumber)) {
-            accountRepository.save(new Account(
-                    accountNumber,
-                    initialBalance,
-                    "INR"
-            ));
+        if (accountRepository.existsByAccountNumber(ACCOUNT_NUMBER)) {
+            return;
         }
+        accountService.createAccount(new CreateAccountRequest(ACCOUNT_NUMBER, "INR"));
+        transferService.deposit(
+                new CashMovementRequest(ACCOUNT_NUMBER, new BigDecimal("1000.00"), "INR"),
+                "dev-seed-" + ACCOUNT_NUMBER);
     }
 }

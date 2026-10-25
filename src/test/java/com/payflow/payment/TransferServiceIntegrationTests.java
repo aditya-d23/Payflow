@@ -9,6 +9,7 @@ import com.payflow.payment.exception.InsufficientBalanceException;
 import com.payflow.payment.repository.AccountRepository;
 import com.payflow.payment.repository.PaymentTransactionRepository;
 import com.payflow.payment.service.TransferService;
+import com.payflow.payment.support.H2Tables;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,8 +58,7 @@ class TransferServiceIntegrationTests {
 
     @AfterEach
     void clearDatabase() {
-        transactionRepository.deleteAll();
-        accountRepository.deleteAll();
+        H2Tables.truncateAll(jdbcTemplate);
     }
 
     @Test

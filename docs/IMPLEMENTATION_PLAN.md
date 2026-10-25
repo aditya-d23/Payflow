@@ -78,10 +78,12 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] "Unknown outcome" is not observable server-side: the key claim and the money movement commit atomically, so a key is either absent (retry executes) or bound to a completed transfer (retry replays). Documented in ARCHITECTURE.md.
 
 ### Phase 5: Ledger
-- [ ] ledger_transactions and ledger_entries, immutable, balanced per transaction
-- [ ] Funding (deposit) via system account
-- [ ] Backfill of pre-existing balances and transfers
-- [ ] Reconciliation check and tests
+- [x] ledger_transactions and ledger_entries (V6). Append-only via triggers, balance and currency checked by a deferred constraint trigger at commit (`LedgerPostgresIT`)
+- [x] `LedgerService` is the only code that changes balances, in the caller's transaction (`Propagation.MANDATORY`)
+- [x] Deposits and withdrawals via per-currency `SYS-FUNDING-*` system accounts, reusing transfer locking and idempotency (`FundingApiTests`). The `SYS-` prefix is reserved.
+- [x] Backfill of pre-existing transfers and opening balances; upgrade from V2 reconciles (`FlywayMigrationPostgresIT`)
+- [x] Reconciliation (`GET /api/v1/admin/reconciliation`) checks per-account balance vs ledger, zero net per currency, balanced postings, and completed transfers with ledger postings. Verified after 120 concurrent mixed operations, and detects out-of-band balance edits.
+- [x] Dev seeding now funds PF10001 through a deposit, so the ledger stays reconciled
 
 ### Phase 6: Security
 - [ ] JWT resource server (issuer, audience, expiry, signature)

@@ -1,5 +1,7 @@
 package com.payflow.payment;
 
+import com.payflow.payment.dto.ReconciliationReport;
+import com.payflow.payment.service.ReconciliationService;
 import com.payflow.payment.support.PostgresIntegrationTest;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -59,6 +61,20 @@ class FlywayMigrationPostgresIT extends PostgresIntegrationTest {
         assertThat(upgrade.queryForObject(
                 "SELECT COUNT(*) FROM payment_transactions", Integer.class))
                 .isEqualTo(1);
+
+        // V6 backfill: the transfer and the unexplained seed balance become
+        // ledger postings, and the whole book reconciles.
+        ReconciliationReport report = new ReconciliationService(upgrade).reconcile();
+        assertThat(report.accountMismatches()).isEmpty();
+        assertThat(report.currencyImbalances()).isEmpty();
+        assertThat(report.unbalancedLedgerTransactions()).isEmpty();
+        assertThat(report.completedTransfersWithoutLedger()).isEmpty();
+        assertThat(upgrade.queryForObject(
+                "SELECT balance FROM accounts WHERE account_number = 'SYS-FUNDING-INR'",
+                BigDecimal.class)).isEqualByComparingTo("-1000");
+        assertThat(upgrade.queryForList(
+                "SELECT type FROM ledger_transactions ORDER BY id", String.class))
+                .containsExactly("TRANSFER", "OPENING_BALANCE");
     }
 
     private static org.flywaydb.core.api.configuration.FluentConfiguration flyway(
