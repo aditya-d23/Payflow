@@ -10,10 +10,14 @@ import com.payflow.payment.exception.ErrorCode;
 import com.payflow.payment.exception.ForbiddenOperationException;
 import com.payflow.payment.exception.IdempotencyKeyConflictException;
 import com.payflow.payment.exception.InvalidRequestException;
+import com.payflow.payment.exception.PayflowException;
 import com.payflow.payment.exception.TransferNotFoundException;
 import com.payflow.payment.repository.PaymentTransactionRepository;
 import com.payflow.payment.security.Caller;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -42,17 +47,20 @@ public class TransferService {
     private final TransferExecutionService transferExecutionService;
     private final CurrencyPolicy currencyPolicy;
     private final SystemAccounts systemAccounts;
+    private final MeterRegistry meterRegistry;
 
     public TransferService(
             PaymentTransactionRepository transactionRepository,
             TransferExecutionService transferExecutionService,
             CurrencyPolicy currencyPolicy,
-            SystemAccounts systemAccounts
+            SystemAccounts systemAccounts,
+            MeterRegistry meterRegistry
     ) {
         this.transactionRepository = transactionRepository;
         this.transferExecutionService = transferExecutionService;
         this.currencyPolicy = currencyPolicy;
         this.systemAccounts = systemAccounts;
+        this.meterRegistry = meterRegistry;
     }
 
     public TransferResult transfer(
@@ -85,7 +93,34 @@ public class TransferService {
                 request.amount(), currency, idempotencyKey));
     }
 
+    /**
+     * Records {@code payflow.transfers{type,outcome}} and
+     * {@code payflow.transfer.duration{type,outcome}}. Labels are bounded
+     * enums (transfer type, error code); never account numbers, keys, or IDs.
+     */
     private TransferResult execute(TransferCommand command) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String outcome = "error";
+        try {
+            TransferResult result = executeOnce(command);
+            outcome = result.replayed() ? "replayed" : "completed";
+            return result;
+        } catch (PayflowException exception) {
+            outcome = exception.getErrorCode().name().toLowerCase(Locale.ROOT);
+            throw exception;
+        } catch (PessimisticLockingFailureException exception) {
+            outcome = "lock_timeout";
+            throw exception;
+        } finally {
+            String type = command.type().name().toLowerCase(Locale.ROOT);
+            meterRegistry.counter("payflow.transfers", "type", type, "outcome", outcome)
+                    .increment();
+            sample.stop(meterRegistry.timer("payflow.transfer.duration",
+                    "type", type, "outcome", outcome));
+        }
+    }
+
+    private TransferResult executeOnce(TransferCommand command) {
         Optional<TransferResult> replay = findReplay(command);
         if (replay.isPresent()) {
             return replay.get();

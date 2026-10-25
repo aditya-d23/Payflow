@@ -98,14 +98,14 @@ Status legend: `[x]` done and verified · `[~]` partial · `[ ]` not started
 - [x] No TransferFailed event: rejected transfers roll back and have no durable business state
 
 ### Phase 8: Redis
-- [ ] Evaluate and document
+- [x] Evaluated and **not adopted**: no state that may live outside PostgreSQL, and no hot read path worth a cache on financial data. Rate limiting belongs at the gateway. Reasoning in ARCHITECTURE.md.
 
 ### Phase 9: API quality
 - [x] Standard error body with code and correlation ID (D8)
-- [ ] OpenAPI
+- [x] OpenAPI 3 via springdoc 3.1.1 at `/v3/api-docs`, Swagger UI in non-prod (`ObservabilityTests`)
 
 ### Phase 10–14: Ops
-- [ ] Actuator health, readiness, Prometheus metrics, correlation-ID logging
+- [x] Actuator health with liveness/readiness probes (public, no details); Prometheus, metrics, info admin-only; `payflow.transfers{type,outcome}`, `payflow.transfer.duration`, outbox metrics, Hikari pool metrics; bounded labels verified; correlation ID in every log line; ECS JSON logs in prod (`ObservabilityTests`)
 - [ ] Dockerfile and Compose (must not collide with `payflow-postgres`)
 - [ ] GitHub Actions CI
 - [ ] k6 performance scripts and measured results
