@@ -75,7 +75,9 @@ class KafkaOutboxPostgresIT extends PostgresIntegrationTest {
         awaitTrue(() -> notifications("PG90002") == 1);
         assertThat(jdbcTemplate.queryForList(
                 "SELECT message FROM transfer_notifications WHERE account_number = 'PG90001' ORDER BY id",
-                String.class)).containsExactly("Received 100.0000 INR", "Sent 25.0000 INR");
+                // Different transfers are different aggregates (Kafka keys), so
+                // only per-aggregate order is guaranteed, not order across them.
+                String.class)).containsExactlyInAnyOrder("Received 100.0000 INR", "Sent 25.0000 INR");
         awaitTrue(() -> count("SELECT COUNT(*) FROM outbox_events WHERE status <> 'PUBLISHED'") == 0);
 
         // Simulate the at-least-once redelivery a relay crash would cause.
